@@ -8,6 +8,10 @@ const args = process.argv.slice(2)
 const command = args[0]
 
 const BCS_COMMANDS: Record<string, { description: string; prompt: string }> = {
+  'bcs': {
+    description: 'Better Code Soul yonetim panelini ac',
+    prompt: 'Call the bcs tool to open the dashboard.',
+  },
   'bcs-status': {
     description: 'Better Code Soul genel durum ozeti',
     prompt: 'Call the bcs_status tool and show the result directly.',
@@ -161,6 +165,7 @@ Usage:
   better-code-soul help      Show this help
 
 OpenCode Commands (after setup):
+  /bcs                 Open dashboard (TUI)
   /bcs-status          General status summary
   /bcs-tokens [period] Token and cost report
   /bcs-models          Available models

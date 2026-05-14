@@ -12,14 +12,33 @@ export async function onSystemTransform(system: string): Promise<string> {
     let injection = '\n\n<!-- Better Code Soul -->\n'
 
     if (graphifyActive) {
-      injection += '- Proje bilgi grafiği aktif. Sorgular için /bcs-graphify komutunu kullan.\n'
+      injection += '- Proje bilgi grafigi aktif. Sorgular icin /bcs-graphify komutunu kullan.\n'
+
+      const graphifyContext = await graphifyService.buildContextSummary(process.cwd(), '')
+      if (graphifyContext) {
+        injection += graphifyContext + '\n'
+      }
+
+      if (graphifyService.needsRebuild(process.cwd())) {
+        injection += '- [BCS Uyari]: Graphify grafi 6 saatten eski. /bcs-graphify build ile guncelle.\n'
+      }
     }
+
     if (ctxModeActive) {
-      injection += "- Context Mode aktif. Ham tool output context'e girmiyor.\n"
+      injection += "- Context Mode aktif. Ham tool output context'e girmez.\n"
     }
+
     if (snapshot) {
-      injection += `- Önceki session: ${snapshot.summary}\n`
+      injection += `- Onceki session: ${snapshot.summary}\n`
     }
+
+    injection += [
+      '- Buyuk/karmasik gorevler icin: /bcs-agent komutunu kullan',
+      '- Planlama gerektiren gorevler: PLAN tier model kullan',
+      '- Kod uretimi: KOD tier model kullan (ucuz + hizli)',
+      '- Dogrulama: REVIEW tier model kullan (en ucuz)',
+    ].join('\n')
+    injection += '\n<!-- /Better Code Soul -->'
 
     return system + injection
   } catch (err) {

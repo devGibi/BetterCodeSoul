@@ -20,6 +20,10 @@ function getHubDataPath() {
 }
 
 const BCS_COMMANDS = {
+  'bcs': {
+    description: 'Better Code Soul yonetim panelini ac',
+    prompt: 'Call the bcs tool to open the dashboard.',
+  },
   'bcs-status': {
     description: 'Better Code Soul genel durum ozeti',
     prompt: 'Call the bcs_status tool and show the result directly.',

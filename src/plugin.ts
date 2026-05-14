@@ -12,6 +12,7 @@ import { onToolAfter } from './hooks/toolAfter.js'
 import { onSessionCompact } from './hooks/sessionCompact.js'
 import { onSystemTransform } from './hooks/systemTransform.js'
 import { formatTokens, formatCost, formatDuration, formatRelativeTime, formatBytes } from './utils/format.js'
+import { formatOptimizationReport } from './tools/optimizationRules.js'
 import { logger } from './utils/logger.js'
 
 interface PluginTool {
@@ -52,6 +53,22 @@ export const BetterCodeSoulPlugin = async (_app?: unknown): Promise<PluginDefini
     },
 
     tool: {
+      bcs: {
+        description: 'Better Code Soul yonetim panelini ac (TAB: sekme, ESC: kapat)',
+        parameters: {},
+        execute: async () => {
+          try {
+            const { Dashboard } = await import('./tui/Dashboard.js')
+            const dashboard = new Dashboard()
+            await dashboard.open()
+            return ''
+          } catch (err) {
+            logger.error('Dashboard error', err)
+            return `Dashboard acilamadi: ${err}\n\nFallback: /bcs-status, /bcs-tokens, /bcs-models komutlarini kullan.`
+          }
+        },
+      },
+
       bcs_status: {
         description: 'Better Code Soul general status summary — token, cost, active tools',
         parameters: {},
@@ -336,104 +353,65 @@ export const BetterCodeSoulPlugin = async (_app?: unknown): Promise<PluginDefini
         description: 'Generate token optimization suggestions based on usage data',
         parameters: {},
         execute: async () => {
-          const stats = db.getSessionStats()
-          const suggestions: string[] = []
-
-          const rules = [
-            {
-              id: 'think_overuse',
-              check: () => stats.thinkTierRatio > 0.6,
-              message: () =>
-                `PLAN tier usage is ${Math.round(stats.thinkTierRatio * 100)}%. Use sonnet-4-5 or kimi-k2 for code generation. Estimated savings: ~70% of think-tier cost.`,
-            },
-            {
-              id: 'no_review_tier',
-              check: () => stats.reviewTierUsage === 0,
-              message: () =>
-                'REVIEW tier never used. Add haiku-4-5 or gpt-4o-mini for validation tasks. Up to 70% cost reduction possible.',
-            },
-            {
-              id: 'high_session_cost',
-              check: () => stats.avgSessionCost > 0.5,
-              message: () =>
-                `Average session cost is ${formatCost(stats.avgSessionCost)}. Break tasks into smaller sessions focused on a single topic.`,
-            },
-            {
-              id: 'graphify_not_active',
-              check: () => !stats.graphifyActive && stats.projectFileCount > 30,
-              message: () =>
-                'Project has 30+ files but Graphify is not active. Enable it to let the model query the graph instead of reading all files. Run: `/bcs-graphify install`',
-            },
-            {
-              id: 'context_mode_not_active',
-              check: () => !stats.contextModeActive,
-              message: () =>
-                'Context Mode is not active. Tool outputs enter context raw. Enable it: `/bcs-context-mode enable`. Expected savings: ~98% tool output reduction.',
-            },
-            {
-              id: 'mixed_providers',
-              check: () => stats.providerCount > 2,
-              message: () =>
-                'Multiple providers in use. Optimize tier-model mapping: PLAN → gemini-2.5-pro, CODE → kimi-k2/deepseek-v3, REVIEW → gpt-4o-mini/haiku-4-5.',
-            },
-          ]
-
-          for (const rule of rules) {
-            if (rule.check()) {
-              suggestions.push(rule.message())
-            }
-          }
-
-          if (suggestions.length === 0) {
-            return '## Optimization\n\nNo optimization suggestions — your usage looks efficient!'
-          }
-
-          let output = `## Optimization Suggestions\n\n`
-          for (let i = 0; i < suggestions.length; i++) {
-            output += `${i + 1}. ${suggestions[i]}\n\n`
-          }
-          output += `Detailed token report: \`/bcs-tokens\``
-          return output
+          return formatOptimizationReport()
         },
       },
 
       bcs_agent: {
-        description: 'Dispatch task to parallel subagent orchestration. Use for large features or refactors.',
+        description: 'Gorevi paralel subagentlara dagit. Buyuk feature veya refactor icin kullan.',
         parameters: {
           request: {
             type: 'string',
-            description: 'What do you want to do? (Turkish or English)',
+            description: 'Ne yapmak istiyorsun? (Turkce veya Ingilizce)',
           },
           strategy: {
             type: 'string',
-            description: 'Orchestration strategy (default: auto)',
+            description: 'Orkestrasyon stratejisi (varsayilan: auto)',
             enum: ['auto', 'plan-code-review', 'parallel-code', 'sequential'],
           },
           maxCost: {
             type: 'number',
-            description: 'Maximum spending limit in USD (default: daily limit from settings)',
+            description: 'Maksimum harcama limiti $ cinsinden (varsayilan: ayarli gunluk limit)',
           },
         },
         execute: async ({ request, strategy = 'auto', maxCost }) => {
           const orchestrator = new Orchestrator()
-          const result = await orchestrator.run(request, process.cwd(), { strategy: strategy as any, maxCost })
+
+          const decision = await orchestrator.decompose(request, process.cwd())
+          const decisionMd = orchestrator['taskDecomposer'].formatDecision(decision)
+
+          const costCheck = await orchestrator['costGuard'].check(decision.estimatedCost)
+          if (!costCheck.approved) {
+            return decisionMd + `\n\nIptal edildi: ${costCheck.reason}`
+          }
+
+          let output = decisionMd + '\n\n---\n\n## Calisiyor...\n\n'
+
+          const result = await orchestrator.run(request, process.cwd(), {
+            strategy: strategy as any,
+            maxCost,
+            decision,
+          })
 
           if (result.cancelled) {
-            return `Cancelled: ${result.reason}`
+            return output + `\n\nIptal: ${result.reason}`
           }
 
-          let output = `## Orchestration Complete\n\n`
-          output += `**Models used:** ${result.modelsUsed.join(', ')}\n`
-          output += `**Parallel agents:** ${result.agentCount}\n`
-          output += `**Total tokens:** ${result.totalTokens.toLocaleString()}\n`
-          output += `**Total cost:** ${formatCost(result.totalCost)}\n`
-          output += `**Duration:** ${(result.durationMs / 1000).toFixed(0)}s\n\n`
+          output += `---\n\n## Tamamlandi\n\n`
+          output += `| | |\n|---|---|\n`
+          output += `| Modeller | ${result.modelsUsed.join(', ')} |\n`
+          output += `| Paralel agent | ${result.agentCount} |\n`
+          output += `| Toplam token | ${result.totalTokens.toLocaleString()} |\n`
+          output += `| Maliyet | ${formatCost(result.totalCost)} |\n`
+          output += `| Sure | ${Math.round(result.durationMs / 1000)} saniye |\n\n`
 
           if (result.hasConflicts) {
-            output += `Warning: File conflicts detected — review below.\n\n`
+            output += `**Dosya cakismalari var — asagiyi incele**\n\n`
           }
 
-          output += `---\n\n${result.output}`
+          output += result.output
+          output += `\n\n---\n_Detaylar icin: \`/bcs\` → Sekme 3 (AGENTLAR)_`
+
           return output
         },
       },

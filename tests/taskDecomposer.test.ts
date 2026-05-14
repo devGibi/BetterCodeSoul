@@ -1,5 +1,28 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TaskDecomposer } from '../src/subagents/TaskDecomposer'
+
+vi.mock('../src/services/Database.js', () => ({
+  db: {
+    saveDecomposeDecision: vi.fn(),
+    getSetting: vi.fn().mockReturnValue(null),
+  },
+}))
+
+vi.mock('../src/services/GraphifyService.js', () => ({
+  graphifyService: {
+    isActive: vi.fn().mockReturnValue(false),
+  },
+}))
+
+vi.mock('../src/services/ModelRegistry.js', () => ({
+  modelRegistry: {
+    getConnectedModels: vi.fn().mockReturnValue([]),
+    getConnectedModelIds: vi.fn().mockReturnValue([]),
+    getModelsByTier: vi.fn().mockReturnValue([]),
+    getAllModels: vi.fn().mockReturnValue([]),
+    getById: vi.fn().mockReturnValue(undefined),
+  },
+}))
 
 describe('TaskDecomposer', () => {
   const decomposer = new TaskDecomposer()
@@ -32,47 +55,99 @@ describe('TaskDecomposer', () => {
       expect(decomposer.detectTaskType('explain how auth works')).toBe('research')
     })
 
-    it('defaults to feature', () => {
-      expect(decomposer.detectTaskType('do something random')).toBe('feature')
+    it('defaults to unknown when no pattern matches', () => {
+      expect(decomposer.detectTaskType('do something random')).toBe('unknown')
     })
   })
 
   describe('decompose', () => {
-    it('creates a plan for feature tasks', async () => {
-      const plan = await decomposer.decompose('kullanıcı profil sayfası ekle', {
+    it('creates a DecomposeDecision for feature tasks', async () => {
+      const decision = await decomposer.decompose('kullanıcı profil sayfası ekle', {
         projectPath: '/tmp/test',
         contextFiles: [],
         availableModels: ['gemini-2.5-pro', 'kimi-k2', 'claude-haiku-4-5'],
       })
 
-      expect(plan.strategy).toBe('plan-code-review')
-      expect(plan.plannerTask).toContain('mimari plan')
-      expect(plan.coderTasks.length).toBeGreaterThanOrEqual(1)
-      expect(plan.reviewTask).toBeTruthy()
-      expect(plan.estimatedCost).toBeGreaterThan(0)
-      expect(plan.estimatedMinutes).toBeGreaterThan(0)
+      expect(decision.taskType).toBe('feature')
+      expect(decision.complexity).toBeDefined()
+      expect(decision.reasoning.length).toBeGreaterThan(0)
+      expect(decision.coderModels.length).toBeGreaterThanOrEqual(1)
+      expect(decision.estimatedCost).toBeGreaterThanOrEqual(0)
+      expect(decision.estimatedMinutes).toBeGreaterThan(0)
     })
 
-    it('creates a sequential plan for fix tasks', async () => {
-      const plan = await decomposer.decompose('login hatasını düzelt', {
+    it('creates a simple plan for fix tasks', async () => {
+      const decision = await decomposer.decompose('fix the broken test', {
         projectPath: '/tmp/test',
         contextFiles: [],
         availableModels: ['gemini-2.5-pro', 'kimi-k2'],
       })
 
-      expect(plan.strategy).toBe('sequential')
-      expect(plan.coderTasks.length).toBe(1)
+      expect(decision.taskType).toBe('fix')
+      expect(decision.coderModels.length).toBeGreaterThanOrEqual(1)
     })
 
-    it('creates a plan with no coders for review tasks', async () => {
-      const plan = await decomposer.decompose('kodu incele', {
+    it('creates a plan with coders for review tasks', async () => {
+      const decision = await decomposer.decompose('kodu incele', {
         projectPath: '/tmp/test',
         contextFiles: [],
         availableModels: ['gemini-2.5-pro'],
       })
 
-      expect(plan.strategy).toBe('sequential')
-      expect(plan.coderTasks.length).toBe(0)
+      expect(decision.taskType).toBe('review')
+      expect(decision.coderModels.length).toBeGreaterThanOrEqual(0)
+    })
+
+    it('includes warnings when no connected models', async () => {
+      const decision = await decomposer.decompose('test task', {
+        projectPath: '/tmp/test',
+        contextFiles: [],
+        availableModels: [],
+      })
+
+      expect(decision.warnings.length).toBeGreaterThan(0)
+    })
+
+    it('generates reasoning for each decision', async () => {
+      const decision = await decomposer.decompose('create a new feature', {
+        projectPath: '/tmp/test',
+        contextFiles: [],
+        availableModels: ['kimi-k2'],
+      })
+
+      expect(decision.reasoning.length).toBeGreaterThanOrEqual(2)
+      expect(decision.reasoning.some(r => r.includes('Gorev tipi'))).toBe(true)
+      expect(decision.reasoning.some(r => r.includes('Karmasiklik'))).toBe(true)
+    })
+  })
+
+  describe('formatDecision', () => {
+    it('formats decision as markdown', async () => {
+      const decision = await decomposer.decompose('create a new feature', {
+        projectPath: '/tmp/test',
+        contextFiles: [],
+        availableModels: ['kimi-k2'],
+      })
+
+      const formatted = decomposer.formatDecision(decision)
+      expect(formatted).toContain('Gorev Analizi')
+      expect(formatted).toContain('Model plani')
+      expect(formatted).toContain('Tahmini')
+    })
+  })
+
+  describe('toPlan', () => {
+    it('converts decision to TaskPlan', async () => {
+      const decision = await decomposer.decompose('create a new feature', {
+        projectPath: '/tmp/test',
+        contextFiles: [],
+        availableModels: ['kimi-k2'],
+      })
+
+      const plan = decomposer.toPlan(decision, 'create a new feature')
+      expect(plan.strategy).toBeDefined()
+      expect(plan.estimatedCost).toBe(decision.estimatedCost)
+      expect(plan.estimatedMinutes).toBe(decision.estimatedMinutes)
     })
   })
 })

@@ -15,13 +15,31 @@ better-code-soul setup
 
 | Komut | Aciklama |
 |-------|----------|
+| `/bcs` | Interaktif dashboard'u ac (TUI) |
 | `/bcs-status` | Genel durum ozeti — token, maliyet, aktif araclar |
 | `/bcs-tokens [donem]` | Token ve maliyet raporu (session, today, week, month) |
 | `/bcs-models` | Kullanilabilir modeller, auth durumu ve fiyat karsilastirmasi |
-| `/bcs-agent "gorev"` | Paralel subagent orkestrasyon |
+| `/bcs-agent "gorev"` | Deterministik gorev ayrıştırma ile paralel subagent orkestrasyon |
 | `/bcs-graphify` | Graphify hafiza sistemi yonetimi |
 | `/bcs-context-mode` | Context Mode token tasarrufu yonetimi |
 | `/bcs-optimize` | Token optimizasyon onerileri |
+
+## Dashboard
+
+`/bcs` komutu 5 sekmeden olusan interaktif bir terminal dashboard'u acar:
+
+1. **GENEL** — 7 gunluk token kullanim grafigi, context dolumu, arac durumu
+2. **MODELLER** — Model tablosu (tier, fiyat, baglanti durumu)
+3. **AGENTLAR** | Son orkestrasyon sonucu ve agent adimlari
+4. **ARACLAR** | Graphify ve Context Mode durumu ile toggle kontrolleri
+5. **OPTIMIZE** | Kullanim verilerine dayali optimizasyon onerileri
+
+Kisayollar:
+- `[1]-[5]` — Sekme degistir
+- `[G]` — Graphify toggle (Sekme 4)
+- `[C]` — Context Mode toggle (Sekme 4)
+- `[B]` — Graf build/guncelle (Sekme 4)
+- `[ESC]` veya `[Q]` — Dashboard'u kapat
 
 ## Paralel Subagent Orkestrasyon Nasil Calisir?
 
@@ -34,7 +52,8 @@ Geleneksel yaklasim (yavas):
 
 Better Code Soul yaklasimi (hizli):
   Kullanici: "Kullanici profil sayfasi ekle"
-  → Orchestrator gorevi analiz eder
+  → TaskDecomposer gorev tipi, karmasiklik ve context analizi yapar
+  → ModelRouter her tier icin en uygun modeli secer
   → PlannerAgent (Gemini Pro, $1.25/1M) → mimari plan → 2 dk
   → Paralel baslar:
        CoderAgent A (Kimi K2, $0.60/1M) → ProfileCard component → 3 dk
@@ -47,15 +66,26 @@ Better Code Soul yaklasimi (hizli):
 Tasarruf: %87 maliyet, %73 sure
 ```
 
+## Model Router
+
+Model secimi `src/services/ModelRouter.ts` dosyasinda izole edilmistir. Yeni model cikinca routing tablosuna bir satir eklemen yeterli — baska hicbir dosyaya dokunma.
+
+Routing onceligi:
+- **PLAN tier**: gemini-2.5-pro → claude-opus-4-5 → o3
+- **CODE tier**: kimi-k2 → deepseek-v3 → glm-4-plus → claude-sonnet-4-5 → gpt-4o → gemini-2.5-flash
+- **REVIEW tier**: claude-haiku-4-5 → gpt-4o-mini → gemini-2.5-flash
+
 ## Graphify
 
-Graphify proje kodunuzdan bir bilgi grafiği olusturur. Model tum dosyalari okumak yerine grafigi sorgular.
+Graphify proje kodunuzdan bir bilgi grafigi olusturur. Model tum dosyalari okumak yerine grafigi sorgular.
 
 ```bash
 /bcs-graphify install   # Graphify'yi kur
 /bcs-graphify build     # Mevcut proje icin graf olustur
 /bcs-graphify enable    # Bu projede aktiflesdir
 ```
+
+Aktif oldugunda, Graphify otomatik olarak ilgili context ozetlerini system prompt'a enjekte eder.
 
 ## Context Mode
 
@@ -77,6 +107,15 @@ better-code-soul mcp
 ```
 
 Bu tum araclari Model Context Protocol (stdio transport) uzerinden sunar.
+
+## CLI Komutlari
+
+```bash
+better-code-soul setup     # Plugin ve komutlari OpenCode'a kaydet
+better-code-soul status    # Kurulum durumunu kontrol et
+better-code-soul mcp       # MCP server baslat (stdio)
+better-code-soul help      # Yardim goster
+```
 
 ## Gereksinimler
 

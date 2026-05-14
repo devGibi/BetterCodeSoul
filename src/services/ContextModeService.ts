@@ -104,6 +104,14 @@ export class ContextModeService {
     logger.info('Context Mode disabled', { projectPath })
   }
 
+  toggle(projectPath: string): void {
+    if (this.isActive(projectPath)) {
+      this.disable(projectPath)
+    } else {
+      this.enable(projectPath)
+    }
+  }
+
   async getStats(): Promise<ContextModeStats> {
     try {
       const result = await runCommand('context-mode', ['statusline'], { timeout: 5000 })

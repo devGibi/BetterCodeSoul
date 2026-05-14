@@ -15,13 +15,31 @@ better-code-soul setup
 
 | Command | Description |
 |---------|-------------|
+| `/bcs` | Open interactive dashboard (TUI) |
 | `/bcs-status` | General status summary — tokens, cost, active tools |
 | `/bcs-tokens [period]` | Token and cost report (session, today, week, month) |
 | `/bcs-models` | Available models, auth status, and price comparison |
-| `/bcs-agent "task"` | Parallel subagent orchestration |
+| `/bcs-agent "task"` | Parallel subagent orchestration with deterministic decomposition |
 | `/bcs-graphify` | Graphify memory system management |
 | `/bcs-context-mode` | Context Mode token savings management |
 | `/bcs-optimize` | Token optimization suggestions |
+
+## Dashboard
+
+The `/bcs` command opens an interactive terminal dashboard with 5 tabs:
+
+1. **GENEL** — 7-day token usage chart, context fill gauge, tool status
+2. **MODELLER** — Model table with tier, price, and connection status
+3. **AGENTLAR** — Last orchestration result with agent steps
+4. **ARACLAR** — Graphify and Context Mode status with toggle controls
+5. **OPTIMIZE** — Optimization suggestions based on usage data
+
+Keyboard shortcuts:
+- `[1]-[5]` — Switch tabs
+- `[G]` — Toggle Graphify (Tab 4)
+- `[C]` — Toggle Context Mode (Tab 4)
+- `[B]` — Build/Update Graphify graph (Tab 4)
+- `[ESC]` or `[Q]` — Close dashboard
 
 ## How Parallel Subagent Orchestration Works
 
@@ -34,7 +52,8 @@ Traditional approach (slow):
 
 Better Code Soul approach (fast):
   User: "Add user profile page"
-  → Orchestrator analyzes the task
+  → TaskDecomposer analyzes task type, complexity, and context
+  → ModelRouter selects optimal model for each tier
   → PlannerAgent (Gemini Pro, $1.25/1M) → architecture plan → 2 min
   → Parallel start:
        CoderAgent A (Kimi K2, $0.60/1M) → ProfileCard component → 3 min
@@ -47,6 +66,15 @@ Better Code Soul approach (fast):
 Savings: 87% cost, 73% time
 ```
 
+## Model Router
+
+Model selection is isolated in `src/services/ModelRouter.ts`. When a new model is released, add one line to the routing table — no other files need to change.
+
+Routing priority:
+- **PLAN tier**: gemini-2.5-pro → claude-opus-4-5 → o3
+- **CODE tier**: kimi-k2 → deepseek-v3 → glm-4-plus → claude-sonnet-4-5 → gpt-4o → gemini-2.5-flash
+- **REVIEW tier**: claude-haiku-4-5 → gpt-4o-mini → gemini-2.5-flash
+
 ## Graphify
 
 Graphify creates a knowledge graph from your codebase. The model queries the graph instead of reading all files.
@@ -56,6 +84,8 @@ Graphify creates a knowledge graph from your codebase. The model queries the gra
 /bcs-graphify build     # Build graph for current project
 /bcs-graphify enable    # Activate for this project
 ```
+
+When active, Graphify automatically injects relevant context summaries into the system prompt.
 
 ## Context Mode
 
@@ -77,6 +107,15 @@ better-code-soul mcp
 ```
 
 This exposes all tools via the Model Context Protocol (stdio transport).
+
+## CLI Commands
+
+```bash
+better-code-soul setup     # Register plugin and commands with OpenCode
+better-code-soul status    # Check installation status
+better-code-soul mcp       # Start MCP server (stdio)
+better-code-soul help      # Show help
+```
 
 ## Requirements
 

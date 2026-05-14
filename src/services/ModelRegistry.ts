@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { paths } from '../utils/platform.js'
 import { logger } from '../utils/logger.js'
+import { db } from './Database.js'
 
 export type ModelTier = 'think' | 'code' | 'review'
 
@@ -134,6 +135,26 @@ export class ModelRegistry {
 
   getAuthProviders(): AuthProvider[] {
     return this.authProviders
+  }
+
+  listAll(): Model[] {
+    return this.getAllModels()
+  }
+
+  getById(id: string): Model | undefined {
+    return this.getModel(id)
+  }
+
+  getActiveModelId(): string | null {
+    return db.getSetting('activeModel')
+  }
+
+  setActiveModel(modelId: string): void {
+    db.updateSetting('activeModel', modelId)
+  }
+
+  getConnectedModelIds(): string[] {
+    return this.getConnectedModels().map(m => m.id)
   }
 }
 

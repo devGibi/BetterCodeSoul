@@ -15,6 +15,14 @@ export interface GraphifyStats {
   lastBuilt: number | null
 }
 
+export interface GraphifyFullStatus {
+  installed: boolean
+  version: string | null
+  active: boolean
+  stats: GraphifyStats
+  needsRebuild: boolean
+}
+
 export class GraphifyService {
   async isInstalled(): Promise<boolean> {
     return commandExists('graphify')
@@ -96,6 +104,14 @@ export class GraphifyService {
     logger.info('Graphify disabled', { projectPath })
   }
 
+  toggle(projectPath: string): void {
+    if (this.isActive(projectPath)) {
+      this.disable(projectPath)
+    } else {
+      this.enable(projectPath)
+    }
+  }
+
   getStats(projectPath: string): GraphifyStats {
     const graphPath = path.join(projectPath, 'graphify-out', 'graph.json')
     if (!fs.existsSync(graphPath)) {
@@ -132,6 +148,76 @@ export class GraphifyService {
       return result.stdout.trim() || null
     } catch {
       return null
+    }
+  }
+
+  needsRebuild(projectPath: string): boolean {
+    const graphPath = path.join(projectPath, 'graphify-out', 'graph.json')
+    if (!fs.existsSync(graphPath)) return true
+
+    try {
+      const stat = fs.statSync(graphPath)
+      const ageHours = (Date.now() - stat.mtimeMs) / 3600000
+      return ageHours > 6
+    } catch {
+      return true
+    }
+  }
+
+  async buildContextSummary(projectPath: string, userRequest: string): Promise<string | null> {
+    if (!this.isActive(projectPath)) return null
+
+    const graphPath = path.join(projectPath, 'graphify-out', 'graph.json')
+    if (!fs.existsSync(graphPath)) return null
+
+    try {
+      const data = JSON.parse(fs.readFileSync(graphPath, 'utf-8'))
+      const nodes = data.nodes || []
+
+      const keywords = this.extractKeywords(userRequest)
+      const relevantNodes = this.findRelevantNodes(nodes, keywords)
+
+      if (relevantNodes.length === 0) return null
+
+      return [
+        '<!-- Graphify Baglam Ozeti (otomatik) -->',
+        `Proje: ${path.basename(projectPath)}`,
+        `Ilgili dosyalar (${relevantNodes.length} adet):`,
+        ...relevantNodes.slice(0, 10).map((n: any) =>
+          `- ${n.source_file || n.path || n.id}: ${n.summary || n.label || n.description || '(ozet yok)'}`
+        ),
+        relevantNodes.length > 10 ? `... ve ${relevantNodes.length - 10} dosya daha` : '',
+        '<!-- /Graphify -->',
+      ].filter(Boolean).join('\n')
+    } catch {
+      return null
+    }
+  }
+
+  private extractKeywords(request: string): string[] {
+    const stopWords = new Set(['ve', 'ile', 'icin', 'bir', 'bu', 'the', 'a', 'an', 'for', 'and', 'that', 'with', 'from'])
+    return request
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !stopWords.has(w))
+  }
+
+  private findRelevantNodes(nodes: any[], keywords: string[]): any[] {
+    return nodes
+      .filter((n: any) => {
+        const text = `${n.source_file || n.path || ''} ${n.summary || n.label || ''} ${(n.tags || []).join(' ')}`.toLowerCase()
+        return keywords.some(kw => text.includes(kw))
+      })
+      .slice(0, 20)
+  }
+
+  async getFullStatus(projectPath: string): Promise<GraphifyFullStatus> {
+    return {
+      installed: await this.isInstalled(),
+      version: await this.getVersion(),
+      active: this.isActive(projectPath),
+      stats: this.getStats(projectPath),
+      needsRebuild: this.needsRebuild(projectPath),
     }
   }
 }

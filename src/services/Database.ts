@@ -72,11 +72,58 @@ export class BcsDatabase {
         value TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS decompose_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT,
+        user_request TEXT NOT NULL,
+        task_type TEXT,
+        complexity TEXT,
+        planner_model TEXT,
+        coder_models TEXT,
+        reviewer_model TEXT,
+        context_files TEXT,
+        estimated_tokens INTEGER,
+        estimated_cost REAL,
+        estimated_minutes INTEGER,
+        reasoning TEXT,
+        warnings TEXT,
+        created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS orchestration_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        orchestration_id INTEGER REFERENCES orchestrations(id),
+        step_index INTEGER,
+        role TEXT,
+        model TEXT,
+        task TEXT,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        cost REAL,
+        duration_ms INTEGER,
+        success INTEGER,
+        error TEXT,
+        created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+      );
+
+      CREATE TABLE IF NOT EXISTS routing_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT,
+        tier TEXT,
+        selected_model TEXT,
+        reason TEXT,
+        connected_models TEXT,
+        created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
       CREATE INDEX IF NOT EXISTS idx_tool_calls_timestamp ON tool_calls(timestamp);
       CREATE INDEX IF NOT EXISTS idx_tool_calls_tool ON tool_calls(tool);
       CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
       CREATE INDEX IF NOT EXISTS idx_orchestrations_timestamp ON orchestrations(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_decompose_decisions_session ON decompose_decisions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_orchestration_steps_orch ON orchestration_steps(orchestration_id);
+      CREATE INDEX IF NOT EXISTS idx_routing_log_session ON routing_log(session_id);
     `)
 
     this.db.exec(`
@@ -206,6 +253,30 @@ export class BcsDatabase {
     }))
   }
 
+  getUsageHistory(days: number): Array<{
+    date: string
+    tokens: number
+    cost: number
+    models: string[]
+  }> {
+    return this.getDailyStats(days)
+  }
+
+  getTodayStats(): {
+    totalTokens: number
+    totalCost: number
+    toolCount: number
+  } {
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+    const stats = this.getTokenStatsByPeriod(startOfDay.getTime())
+    return {
+      totalTokens: stats.totalInput + stats.totalOutput,
+      totalCost: stats.totalCost,
+      toolCount: stats.toolCount,
+    }
+  }
+
   getSessionStats(): {
     thinkTierRatio: number
     reviewTierUsage: number
@@ -255,6 +326,19 @@ export class BcsDatabase {
     }
   }
 
+  getOptimizationStats(): {
+    thinkTierRatio: number
+    reviewTierUsage: number
+    avgContextFill: number
+    avgSessionCost: number
+    graphifyActive: boolean
+    contextModeActive: boolean
+    projectFileCount: number
+    providerCount: number
+  } {
+    return this.getSessionStats()
+  }
+
   saveSessionSnapshot(sessionId: string, snapshot: string): void {
     this.db.prepare('INSERT INTO session_snapshots (session_id, snapshot, timestamp) VALUES (?, ?, ?)').run(
       sessionId,
@@ -277,8 +361,8 @@ export class BcsDatabase {
     modelsUsed: string[]
     cancelled?: boolean
     cancelReason?: string
-  }): void {
-    this.db.prepare(`
+  }): number {
+    const result = this.db.prepare(`
       INSERT INTO orchestrations (user_request, agent_count, total_tokens, total_cost_usd, duration_ms, models_used, timestamp, cancelled, cancel_reason)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -292,11 +376,46 @@ export class BcsDatabase {
       data.cancelled ? 1 : 0,
       data.cancelReason || null
     )
+    return Number(result.lastInsertRowid)
   }
 
   getOrchestrationCount(): number {
     const result = this.db.prepare('SELECT COUNT(*) as cnt FROM orchestrations').get() as { cnt: number }
     return result.cnt
+  }
+
+  getLastOrchestration(): {
+    id: number
+    userRequest: string
+    agentCount: number
+    totalTokens: number
+    totalCost: number
+    durationMs: number
+    modelsUsed: string
+    timestamp: number
+    cancelled: number
+    cancelReason: string | null
+    steps: Array<{
+      step_index: number
+      role: string
+      model: string
+      task: string
+      input_tokens: number
+      output_tokens: number
+      cost: number
+      duration_ms: number
+      success: number
+      error: string | null
+    }>
+  } | null {
+    const orch = this.db.prepare('SELECT * FROM orchestrations ORDER BY timestamp DESC LIMIT 1').get() as any
+    if (!orch) return null
+
+    const steps = this.db.prepare(
+      'SELECT step_index, role, model, task, input_tokens, output_tokens, cost, duration_ms, success, error FROM orchestration_steps WHERE orchestration_id = ? ORDER BY step_index'
+    ).all(orch.id) as any[]
+
+    return { ...orch, steps }
   }
 
   updateSetting(key: string, value: string): void {
@@ -320,6 +439,112 @@ export class BcsDatabase {
       graphifyActive: this.getSetting('graphifyEnabled') === '1',
       contextModeEnabled: this.getSetting('contextModeEnabled') === '1',
     } as any
+  }
+
+  saveDecomposeDecision(data: {
+    sessionId?: string
+    userRequest: string
+    taskType: string
+    complexity: string
+    plannerModel: string | null
+    coderModels: string
+    reviewerModel: string | null
+    contextFiles: string
+    estimatedTokens: number
+    estimatedCost: number
+    estimatedMinutes: number
+    reasoning: string
+    warnings: string
+  }): void {
+    this.db.prepare(`
+      INSERT INTO decompose_decisions (session_id, user_request, task_type, complexity, planner_model, coder_models, reviewer_model, context_files, estimated_tokens, estimated_cost, estimated_minutes, reasoning, warnings)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.sessionId || null,
+      data.userRequest,
+      data.taskType,
+      data.complexity,
+      data.plannerModel,
+      data.coderModels,
+      data.reviewerModel,
+      data.contextFiles,
+      data.estimatedTokens,
+      data.estimatedCost,
+      data.estimatedMinutes,
+      data.reasoning,
+      data.warnings
+    )
+  }
+
+  getLastDecomposeDecision(): {
+    user_request: string
+    task_type: string
+    complexity: string
+    planner_model: string | null
+    coder_models: string
+    reviewer_model: string | null
+    context_files: string
+    estimated_tokens: number
+    estimated_cost: number
+    estimated_minutes: number
+    reasoning: string
+    warnings: string
+    created_at: number
+  } | null {
+    const row = this.db.prepare('SELECT * FROM decompose_decisions ORDER BY created_at DESC LIMIT 1').get() as any
+    return row || null
+  }
+
+  saveOrchestrationStep(data: {
+    orchestrationId: number
+    stepIndex: number
+    role: string
+    model: string
+    task: string
+    inputTokens: number
+    outputTokens: number
+    cost: number
+    durationMs: number
+    success: boolean
+    error?: string
+  }): void {
+    this.db.prepare(`
+      INSERT INTO orchestration_steps (orchestration_id, step_index, role, model, task, input_tokens, output_tokens, cost, duration_ms, success, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.orchestrationId,
+      data.stepIndex,
+      data.role,
+      data.model,
+      data.task,
+      data.inputTokens,
+      data.outputTokens,
+      data.cost,
+      data.durationMs,
+      data.success ? 1 : 0,
+      data.error || null
+    )
+  }
+
+  saveRoutingLog(data: {
+    sessionId?: string
+    tier: string
+    selectedModel: string
+    reason: string
+    connectedModels: string[]
+    timestamp: number
+  }): void {
+    this.db.prepare(`
+      INSERT INTO routing_log (session_id, tier, selected_model, reason, connected_models, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      data.sessionId || null,
+      data.tier,
+      data.selectedModel,
+      data.reason,
+      JSON.stringify(data.connectedModels),
+      data.timestamp
+    )
   }
 }
 
