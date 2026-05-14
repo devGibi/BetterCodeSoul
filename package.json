@@ -1,0 +1,61 @@
+{
+  "name": "better-code-soul",
+  "version": "0.1.0",
+  "description": "OpenCode plugin for parallel subagent orchestration, token tracking, Graphify and Context Mode management",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "better-code-soul": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "postinstall": "node scripts/postinstall.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^1.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "token",
+    "mcp",
+    "ai",
+    "graphify",
+    "context-mode",
+    "subagent",
+    "orchestration"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/better-code-soul"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "configs",
+    "src/models"
+  ]
+}
