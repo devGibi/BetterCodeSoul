@@ -3,58 +3,73 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { fileURLToPath } from 'node:url'
 
 const args = process.argv.slice(2)
 const command = args[0]
 
-const BCS_COMMANDS: Record<string, { description: string; prompt: string }> = {
+const BCS_COMMANDS: Record<string, { description: string; template: string }> = {
   'bcs': {
     description: 'Better Code Soul yonetim panelini ac',
-    prompt: 'Call the bcs tool to open the dashboard.',
+    template: 'Call the bcs tool to open the dashboard.',
   },
   'bcs-status': {
     description: 'Better Code Soul genel durum ozeti',
-    prompt: 'Call the bcs_status tool and show the result directly.',
+    template: 'Call the bcs_status tool and return only its output.',
   },
   'bcs-tokens': {
     description: 'Better Code Soul token ve maliyet raporu',
-    prompt: 'Call the bcs_tokens tool. If the user supplied an argument, use it as the period; otherwise use session.',
+    template: 'Call the bcs_tokens tool with period set to "$ARGUMENTS" if provided, otherwise "session". Return only its output.',
   },
   'bcs-models': {
     description: 'Better Code Soul model ve auth durumu',
-    prompt: 'Call the bcs_models tool. If the user supplied an argument, use it as the filter; otherwise use all.',
+    template: 'Call the bcs_models tool with filter set to "$ARGUMENTS" if provided, otherwise "all". Return only its output.',
   },
   'bcs-graphify': {
     description: 'Graphify hafiza sistemi yonetimi',
-    prompt: 'Call the bcs_graphify tool. Use the user argument as action; if missing, use status.',
+    template: 'Call the bcs_graphify tool with action set to "$ARGUMENTS" if provided, otherwise "status". Return only its output.',
   },
   'bcs-context-mode': {
     description: 'Context Mode token tasarrufu yonetimi',
-    prompt: 'Call the bcs_context_mode tool. Use the user argument as action; if missing, use status.',
+    template: 'Call the bcs_context_mode tool with action set to "$ARGUMENTS" if provided, otherwise "status". Return only its output.',
   },
   'bcs-optimize': {
     description: 'Better Code Soul optimizasyon onerileri',
-    prompt: 'Call the bcs_optimize tool and show the result directly.',
+    template: 'Call the bcs_optimize tool and return only its output.',
   },
   'bcs-agent': {
     description: 'Gorevi paralel subagentlara dagit',
-    prompt: 'Call the bcs_agent tool. Use the full user argument as request. If no request was supplied, ask the user for the task.',
+    template: 'Call the bcs_agent tool with request set to "$ARGUMENTS". Return only its output.',
   },
 }
 
 function getConfigPath(): string {
-  switch (process.platform) {
-    case 'win32':
-      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'opencode', 'opencode.json')
-    case 'darwin':
-      return path.join(os.homedir(), 'Library', 'Application Support', 'opencode', 'opencode.json')
-    default:
-      return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
-  }
+  return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
 }
 
 function getHubDataPath(): string {
   return path.join(os.homedir(), '.better-code-soul')
+}
+
+function isBetterCodeSoulPlugin(entry: unknown): boolean {
+  const plugin = Array.isArray(entry) ? entry[0] : entry
+  if (typeof plugin !== 'string') return false
+
+  if (plugin === 'better-code-soul' || plugin.startsWith('better-code-soul@')) {
+    return true
+  }
+
+  if (plugin.startsWith('file://')) {
+    try {
+      const pluginPath = path.resolve(fileURLToPath(plugin))
+      const localDist = path.resolve(process.cwd(), 'dist', 'index.mjs')
+      return pluginPath === localDist && fs.existsSync(pluginPath)
+    } catch {
+      return false
+    }
+  }
+
+  return false
 }
 
 function setup(): void {
@@ -69,7 +84,7 @@ function setup(): void {
 
   let config: Record<string, unknown> & {
     plugin?: unknown[]
-    command?: Record<string, { description: string; prompt: string }>
+    command?: Record<string, { description: string; template: string; prompt?: string }>
   } = {}
   if (fs.existsSync(configPath)) {
     try {
@@ -90,7 +105,7 @@ function setup(): void {
     config.$schema = 'https://opencode.ai/config.json'
     changed = true
   }
-  if (!config.plugin.includes('better-code-soul')) {
+  if (!config.plugin.some(isBetterCodeSoulPlugin)) {
     config.plugin.push('better-code-soul')
     changed = true
     console.log('  Added "better-code-soul" to opencode.json plugins')
@@ -104,7 +119,7 @@ function setup(): void {
   }
   for (const [name, commandConfig] of Object.entries(BCS_COMMANDS)) {
     const current = config.command[name]
-    if (!current || current.description !== commandConfig.description || current.prompt !== commandConfig.prompt) {
+    if (!current || current.description !== commandConfig.description || current.template !== commandConfig.template || current.prompt) {
       config.command[name] = commandConfig
       changed = true
       console.log(`  Registered /${name}`)
@@ -143,7 +158,7 @@ function status(): void {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
       const plugins = Array.isArray(config.plugin) ? config.plugin : [config.plugin]
-      const registered = plugins.includes('better-code-soul')
+      const registered = plugins.some(isBetterCodeSoulPlugin)
       console.log(`  Plugin:   ${registered ? 'Registered' : 'NOT registered'}`)
       const commands = config.command && typeof config.command === 'object' ? config.command : {}
       const missingCommands = Object.keys(BCS_COMMANDS).filter((name) => !(name in commands))

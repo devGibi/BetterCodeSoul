@@ -220,7 +220,7 @@ export class Dashboard {
     }
 
     content += `  ${'─'.repeat(60)}\n`
-    content += `  Toplam: ${lastOrch.total_tokens.toLocaleString()} tok · $${lastOrch.total_cost_usd.toFixed(4)} · ${Math.round(lastOrch.duration_ms / 1000)} saniye\n`
+    content += `  Toplam: ${lastOrch.totalTokens.toLocaleString()} tok · $${lastOrch.totalCost.toFixed(4)} · ${Math.round(lastOrch.durationMs / 1000)} saniye\n`
 
     this.grid.set(3, 0, 8, 12, blessed.box, {
       label: ' Son Orkestrasyon — ' + new Date(lastOrch.timestamp).toLocaleString('tr-TR'),

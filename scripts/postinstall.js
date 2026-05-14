@@ -5,14 +5,7 @@ const path = require('path')
 const os = require('os')
 
 function getConfigPath() {
-  switch (process.platform) {
-    case 'win32':
-      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'opencode', 'opencode.json')
-    case 'darwin':
-      return path.join(os.homedir(), 'Library', 'Application Support', 'opencode', 'opencode.json')
-    default:
-      return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
-  }
+  return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
 }
 
 function getHubDataPath() {
@@ -22,35 +15,35 @@ function getHubDataPath() {
 const BCS_COMMANDS = {
   'bcs': {
     description: 'Better Code Soul yonetim panelini ac',
-    prompt: 'Call the bcs tool to open the dashboard.',
+    template: 'Call the bcs tool to open the dashboard.',
   },
   'bcs-status': {
     description: 'Better Code Soul genel durum ozeti',
-    prompt: 'Call the bcs_status tool and show the result directly.',
+    template: 'Call the bcs_status tool and return only its output.',
   },
   'bcs-tokens': {
     description: 'Better Code Soul token ve maliyet raporu',
-    prompt: 'Call the bcs_tokens tool. If the user supplied an argument, use it as the period; otherwise use session.',
+    template: 'Call the bcs_tokens tool with period set to "$ARGUMENTS" if provided, otherwise "session". Return only its output.',
   },
   'bcs-models': {
     description: 'Better Code Soul model ve auth durumu',
-    prompt: 'Call the bcs_models tool. If the user supplied an argument, use it as the filter; otherwise use all.',
+    template: 'Call the bcs_models tool with filter set to "$ARGUMENTS" if provided, otherwise "all". Return only its output.',
   },
   'bcs-graphify': {
     description: 'Graphify hafiza sistemi yonetimi',
-    prompt: 'Call the bcs_graphify tool. Use the user argument as action; if missing, use status.',
+    template: 'Call the bcs_graphify tool with action set to "$ARGUMENTS" if provided, otherwise "status". Return only its output.',
   },
   'bcs-context-mode': {
     description: 'Context Mode token tasarrufu yonetimi',
-    prompt: 'Call the bcs_context_mode tool. Use the user argument as action; if missing, use status.',
+    template: 'Call the bcs_context_mode tool with action set to "$ARGUMENTS" if provided, otherwise "status". Return only its output.',
   },
   'bcs-optimize': {
     description: 'Better Code Soul optimizasyon onerileri',
-    prompt: 'Call the bcs_optimize tool and show the result directly.',
+    template: 'Call the bcs_optimize tool and return only its output.',
   },
   'bcs-agent': {
     description: 'Gorevi paralel subagentlara dagit',
-    prompt: 'Call the bcs_agent tool. Use the full user argument as request. If no request was supplied, ask the user for the task.',
+    template: 'Call the bcs_agent tool with request set to "$ARGUMENTS". Return only its output.',
   },
 }
 
@@ -93,7 +86,7 @@ try {
   }
   for (const [name, commandConfig] of Object.entries(BCS_COMMANDS)) {
     const current = config.command[name]
-    if (!current || current.description !== commandConfig.description || current.prompt !== commandConfig.prompt) {
+    if (!current || current.description !== commandConfig.description || current.template !== commandConfig.template || current.prompt) {
       config.command[name] = commandConfig
       changed = true
     }

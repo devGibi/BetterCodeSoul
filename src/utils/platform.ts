@@ -3,14 +3,7 @@ import os from 'node:os'
 
 export const paths = {
   opencodeConfig(): string {
-    switch (process.platform) {
-      case 'win32':
-        return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'opencode', 'opencode.json')
-      case 'darwin':
-        return path.join(os.homedir(), 'Library', 'Application Support', 'opencode', 'opencode.json')
-      default:
-        return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
-    }
+    return path.join(os.homedir(), '.config', 'opencode', 'opencode.json')
   },
 
   hubData(): string {
