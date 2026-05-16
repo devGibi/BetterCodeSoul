@@ -9,6 +9,7 @@ import { modelRegistry } from '../services/ModelRegistry.js'
 import { costCalculator } from '../services/CostCalculator.js'
 import { qualityLoopService, type QualityLoopResult } from '../services/QualityLoopService.js'
 import { checkpointService, type CheckpointResult } from '../services/CheckpointService.js'
+import { repositoryIdentityService } from '../services/RepositoryIdentityService.js'
 import { db } from '../services/Database.js'
 import { authReader } from '../services/AuthReader.js'
 import { logger } from '../utils/logger.js'
@@ -112,6 +113,7 @@ export class Orchestrator {
     }
 
     const connectedModelIds = modelRegistry.getConnectedModelIds()
+    const repoKey = repositoryIdentityService.getRepoKey(projectPath)
     const orchId = db.saveOrchestration({
       userRequest,
       agentCount: 0,
@@ -127,7 +129,15 @@ export class Orchestrator {
 
     let planResult: AgentResult | null = null
     if (decision.plannerModel && plan.plannerTask) {
-      const routeResult = this.modelRouter.routeAndLog('think', connectedModelIds)
+      const routeResult = this.modelRouter.routeAndLog('think', connectedModelIds, undefined, {
+        projectPath,
+        repoKey,
+        taskType: decision.taskType,
+        complexity: decision.complexity,
+        role: 'planner',
+        orchestrationId: orchId,
+        strategy: 'planner-strong',
+      })
       planResult = await this.agentRunner.run({
         agentType: 'planner',
         model: routeResult.model,
@@ -181,7 +191,15 @@ export class Orchestrator {
     let coderResults: AgentResult[] = []
 
     if (plan.coderTasks.length > 0) {
-      const codeRouteResult = this.modelRouter.routeAndLog('code', connectedModelIds)
+      const codeRouteResult = this.modelRouter.routeAndLog('code', connectedModelIds, undefined, {
+        projectPath,
+        repoKey,
+        taskType: decision.taskType,
+        complexity: decision.complexity,
+        role: 'coder',
+        orchestrationId: orchId,
+        strategy: 'cheap-first',
+      })
       const coderPromises = plan.coderTasks.map(async (task, i) => {
         const result = await this.agentRunner.run({
           agentType: 'coder',
@@ -222,7 +240,15 @@ export class Orchestrator {
     let reviewResults: AgentResult[] = []
 
     if (coderResults.length > 0 && decision.reviewerModel) {
-      const reviewRouteResult = this.modelRouter.routeAndLog('review', connectedModelIds)
+      const reviewRouteResult = this.modelRouter.routeAndLog('review', connectedModelIds, undefined, {
+        projectPath,
+        repoKey,
+        taskType: decision.taskType,
+        complexity: decision.complexity,
+        role: 'reviewer',
+        orchestrationId: orchId,
+        strategy: 'learned',
+      })
       const reviewPromises = coderResults.map((coderResult, i) => {
         return this.agentRunner.run({
           agentType: 'reviewer',
@@ -273,6 +299,38 @@ export class Orchestrator {
       checkpoint,
     })
 
+    if (!quality.passed && reviewResults.length === 0 && coderResults.length > 0) {
+      const autoReviewResult = await this.runAutoReviewer({
+        projectPath,
+        orchId,
+        decision,
+        merged,
+        coderResults,
+        stepIndex: allResults.length + 1,
+        connectedModelIds,
+        repoKey,
+      })
+      allResults.push(autoReviewResult)
+      if (autoReviewResult.success) {
+        reviewResults.push(autoReviewResult)
+      }
+
+      merged = await this.resultMerger.merge({
+        planResult: planResult || { agentId: 'plan_skip', output: '', inputTokens: 0, outputTokens: 0, model: '', durationMs: 0, success: true },
+        coderResults,
+        reviewResults,
+      })
+      finalCost = this.calculateTotalCost(allResults)
+      quality = await qualityLoopService.run({
+        projectPath,
+        merged,
+        allResults,
+        totalCost: finalCost,
+        retryCount,
+        checkpoint,
+      })
+    }
+
     if (quality.shouldRetry) {
       retryCount = 1
       const retryResult = await this.runRepairRetry({
@@ -283,6 +341,9 @@ export class Orchestrator {
         quality,
         stepIndex: allResults.length + 1,
         connectedModelIds,
+        repoKey,
+        decision,
+        avoidModelIds: allResults.filter((result) => result.agentId.startsWith('coder')).map((result) => result.model).filter(Boolean),
       })
       allResults.push(retryResult)
       if (retryResult.success) {
@@ -318,7 +379,7 @@ export class Orchestrator {
       cancelled: false,
     })
 
-    db.saveQualityRun({
+    const qualityRunId = db.saveQualityRun({
       orchestrationId: orchId,
       successScore: quality.score,
       passed: quality.passed,
@@ -332,6 +393,14 @@ export class Orchestrator {
       diffSummary: quality.diffSummary,
       summary: quality.summary,
       commands: quality.commands,
+    })
+    this.saveRouterOutcomes({
+      orchId,
+      qualityRunId,
+      repoKey,
+      decision,
+      allResults,
+      quality,
     })
 
     return { ...merged, totalTokens: finalTokens, totalCost: finalCost, agentCount: allResults.length, durationMs, decision, quality }
@@ -353,6 +422,54 @@ export class Orchestrator {
     return checkpoint
   }
 
+  private async runAutoReviewer(params: {
+    projectPath: string
+    orchId: number
+    decision: DecomposeDecision
+    merged: MergedResult
+    coderResults: AgentResult[]
+    stepIndex: number
+    connectedModelIds: string[]
+    repoKey: string
+  }): Promise<AgentResult> {
+    const routeResult = this.modelRouter.routeAndLog('review', params.connectedModelIds, undefined, {
+      projectPath: params.projectPath,
+      repoKey: params.repoKey,
+      taskType: params.decision.taskType,
+      complexity: params.decision.complexity,
+      role: 'auto_reviewer',
+      orchestrationId: params.orchId,
+      strategy: 'auto-reviewer',
+    })
+    const result = await this.agentRunner.run({
+      agentType: 'reviewer',
+      model: routeResult.model,
+      task: [
+        'Quality loop skoru dusuk geldi. Degisiklikleri incele.',
+        'Tip/logic hatasi, eksik test, build riski veya gereksiz kapsam buyumesi varsa listele.',
+        'Sorun yoksa sadece "ONAYLANDI" yaz.',
+      ].join('\n'),
+      context: [params.merged.output, ...params.coderResults.map((result) => result.output)].join('\n\n'),
+      maxTokens: 1200,
+    })
+
+    db.saveOrchestrationStep({
+      orchestrationId: params.orchId,
+      stepIndex: params.stepIndex,
+      role: 'auto_reviewer',
+      model: routeResult.model.id,
+      task: 'Automatic low-quality review',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cost: this.calculateResultCost(result),
+      durationMs: result.durationMs,
+      success: result.success,
+      error: result.error,
+    })
+
+    return { ...result, agentId: 'reviewer_auto' }
+  }
+
   private async runRepairRetry(params: {
     projectPath: string
     orchId: number
@@ -361,8 +478,20 @@ export class Orchestrator {
     quality: QualityLoopResult
     stepIndex: number
     connectedModelIds: string[]
+    repoKey: string
+    decision: DecomposeDecision
+    avoidModelIds: string[]
   }): Promise<AgentResult> {
-    const routeResult = this.modelRouter.routeAndLog('code', params.connectedModelIds)
+    const routeResult = this.modelRouter.routeAndLog('code', params.connectedModelIds, undefined, {
+      projectPath: params.projectPath,
+      repoKey: params.repoKey,
+      taskType: params.decision.taskType,
+      complexity: params.decision.complexity,
+      role: 'retry',
+      orchestrationId: params.orchId,
+      strategy: 'escalation',
+      avoidModelIds: params.avoidModelIds,
+    })
     const result = await this.agentRunner.run({
       agentType: 'coder',
       model: routeResult.model,
@@ -385,7 +514,50 @@ export class Orchestrator {
       error: result.error,
     })
 
-    return result
+    return { ...result, agentId: 'retry_1' }
+  }
+
+  private saveRouterOutcomes(params: {
+    orchId: number
+    qualityRunId: number
+    repoKey: string
+    decision: DecomposeDecision
+    allResults: AgentResult[]
+    quality: QualityLoopResult
+  }): void {
+    db.saveRouterModelOutcomes(params.allResults
+      .filter((result) => Boolean(result.model))
+      .map((result) => ({
+        orchestrationId: params.orchId,
+        qualityRunId: params.qualityRunId,
+        repoKey: params.repoKey,
+        taskType: params.decision.taskType,
+        complexity: params.decision.complexity,
+        tier: this.tierForResult(result),
+        role: this.roleForResult(result),
+        model: result.model,
+        stepSuccess: result.success,
+        qualityPassed: params.quality.passed,
+        successScore: params.quality.score,
+        cost: this.calculateResultCost(result),
+        durationMs: result.durationMs,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        retryCount: params.quality.retryCount,
+      })))
+  }
+
+  private tierForResult(result: AgentResult): 'think' | 'code' | 'review' {
+    if (result.agentId.startsWith('planner')) return 'think'
+    if (result.agentId.startsWith('reviewer')) return 'review'
+    return 'code'
+  }
+
+  private roleForResult(result: AgentResult): string {
+    if (result.agentId.startsWith('planner')) return 'planner'
+    if (result.agentId.startsWith('reviewer')) return 'reviewer'
+    if (result.agentId.startsWith('retry')) return 'retry'
+    return 'coder'
   }
 
   private buildRetryTask(userRequest: string, quality: QualityLoopResult): string {

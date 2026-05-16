@@ -25,6 +25,7 @@ better-code-soul setup
 | `/bcs-optimize` | Token optimization suggestions |
 | `/bcs-doctor` | Install, auth, storage, and tool diagnostics |
 | `/bcs-quality` | Quality loop report — success score, model performance, cost per successful task |
+| `/bcs-router` | Auto-improving router report — learned model rankings and escalations |
 
 ## Dashboard
 
@@ -99,10 +100,25 @@ better-code-soul quality
 
 Model selection is isolated in `src/services/ModelRouter.ts`. When a new model is released, add one line to the routing table — no other files need to change.
 
+Phase 3 adds an auto-improving router. It records repo/task/model outcomes after the Quality Loop, then uses that history to pick better models over time:
+
+- Learns model performance per repository, task type, complexity, and tier
+- Uses strong THINK models for planning and cheap CODE models for first implementation
+- Escalates repair retries away from failed cheap models when quality is low
+- Runs an automatic reviewer for low-quality simple tasks that skipped review
+- Reports learned rankings, pass rate, escalation count, and auto-reviewer count via `/bcs-router`
+
 Routing priority:
 - **PLAN tier**: gemini-2.5-pro → claude-opus-4-5 → o3
 - **CODE tier**: kimi-k2 → deepseek-v3 → glm-4-plus → claude-sonnet-4-5 → gpt-4o → gemini-2.5-flash
 - **REVIEW tier**: claude-haiku-4-5 → gpt-4o-mini → gemini-2.5-flash
+
+Use:
+
+```bash
+/bcs-router month
+better-code-soul router
+```
 
 ## Graphify
 
@@ -144,6 +160,7 @@ better-code-soul setup     # Register plugin and commands with OpenCode
 better-code-soul status    # Check installation status
 better-code-soul doctor    # Run install/auth/tool diagnostics
 better-code-soul quality   # Show quality loop report
+better-code-soul router    # Show auto-improving router report
 better-code-soul dashboard # Start local web dashboard
 better-code-soul mcp       # Start MCP server (stdio)
 better-code-soul help      # Show help

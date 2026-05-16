@@ -41,6 +41,7 @@ const COMMAND_NAMES = [
   'bcs-agent',
   'bcs-doctor',
   'bcs-quality',
+  'bcs-router',
 ]
 
 export class DoctorService {

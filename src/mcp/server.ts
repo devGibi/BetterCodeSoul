@@ -6,6 +6,7 @@ import { authReader } from '../services/AuthReader.js'
 import { graphifyService } from '../services/GraphifyService.js'
 import { contextModeService } from '../services/ContextModeService.js'
 import { doctorService } from '../services/DoctorService.js'
+import { routerLearningService } from '../services/RouterLearningService.js'
 import { Orchestrator } from '../subagents/Orchestrator.js'
 import { formatTokens, formatCost, formatDuration } from '../utils/format.js'
 import { logger } from '../utils/logger.js'
@@ -144,6 +145,14 @@ const TOOLS: Record<string, { description: string; inputSchema: unknown; handler
         }
       }
       return lines.join('\n')
+    },
+  },
+  bcs_router: {
+    description: 'Auto-improving router report — learned rankings, repo outcomes, escalation stats',
+    inputSchema: { type: 'object', properties: { period: { type: 'string', enum: ['week', 'month'] } } },
+    handler: async (args) => {
+      const days = args.period === 'week' ? 7 : 30
+      return routerLearningService.formatReport(process.cwd(), days)
     },
   },
   bcs_agent: {

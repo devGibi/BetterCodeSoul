@@ -6,6 +6,7 @@ import { authReader } from '../services/AuthReader.js'
 import { graphifyService } from '../services/GraphifyService.js'
 import { contextModeService } from '../services/ContextModeService.js'
 import { ModelRouter, ROUTING_TABLE_EXPORT } from '../services/ModelRouter.js'
+import { routerLearningService } from '../services/RouterLearningService.js'
 import { optimizationRules, getOptimizationStats } from '../tools/optimizationRules.js'
 import { formatTokens, formatCost, formatDuration, formatRelativeTime, formatBytes } from '../utils/format.js'
 import { logger } from '../utils/logger.js'
@@ -322,6 +323,7 @@ export class Dashboard {
     const summary = db.getQualitySummary(30)
     const models = db.getModelPerformanceHistory(30).slice(0, 12)
     const recent = db.getRecentQualityRuns(6)
+    const router = routerLearningService.getReport(process.cwd(), 30)
 
     const summaryContent = [
       `  Success score: ${summary.avgSuccessScore.toFixed(1)}/100`,
@@ -351,7 +353,23 @@ export class Dashboard {
       style: { border: { fg: 'yellow' } },
     })
 
-    const table = this.grid.set(6, 0, 5, 12, contrib.table, {
+    const routerContent = [
+      `  Scope: ${router.scope}`,
+      `  Decisions/outcomes: ${router.summary.decisions}/${router.summary.outcomes}`,
+      `  Quality pass: ${(router.summary.qualityPassRate * 100).toFixed(0)}% · avg ${router.summary.avgSuccessScore.toFixed(1)}/100`,
+      `  Escalation: ${router.summary.escalationCount} · auto-reviewer: ${router.summary.autoReviewerCount}`,
+      router.recommendations.length > 0 ? `  Top: ${router.recommendations.slice(0, 3).map((row) => `${row.model} ${(row.qualityPassRate * 100).toFixed(0)}%`).join(' · ')}` : '  Top: history yok',
+    ].join('\n')
+
+    this.grid.set(6, 0, 3, 12, blessed.box, {
+      label: ' Auto-Improving Router ',
+      border: { type: 'line' },
+      content: routerContent,
+      tags: true,
+      style: { border: { fg: 'magenta' } },
+    })
+
+    const table = this.grid.set(9, 0, 2, 12, contrib.table, {
       label: ' Model Performance ',
       keys: true,
       fg: 'white',

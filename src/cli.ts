@@ -45,6 +45,10 @@ const BCS_COMMANDS: Record<string, { description: string; template: string }> = 
     description: 'Better Code Soul kalite ve basari raporu',
     template: 'Call the bcs_quality tool with period set to "$ARGUMENTS" if provided, otherwise "month". Return only its output.',
   },
+  'bcs-router': {
+    description: 'Better Code Soul ogrenerek model secen router raporu',
+    template: 'Call the bcs_router tool with period set to "$ARGUMENTS" if provided, otherwise "month". Return only its output.',
+  },
   'bcs-agent': {
     description: 'Gorevi paralel subagentlara dagit',
     template: 'Call the bcs_agent tool with request set to "$ARGUMENTS". Return only its output.',
@@ -211,6 +215,7 @@ async function quality(): Promise<void> {
   const { db } = await import('./services/Database.js')
   const { modelRegistry } = await import('./services/ModelRegistry.js')
   const { formatCost, formatDuration } = await import('./utils/format.js')
+  const { routerLearningService } = await import('./services/RouterLearningService.js')
 
   await db.init()
   modelRegistry.init()
@@ -232,6 +237,28 @@ async function quality(): Promise<void> {
       console.log(`  ${model.model} / ${model.role}: ${model.runs} run, ${(model.successRate * 100).toFixed(0)}%, ${formatCost(model.avgCost)}, ${formatDuration(model.avgDurationMs)}`)
     }
   }
+  const router = routerLearningService.getReport(process.cwd(), days)
+  console.log('\nRouter learning:')
+  console.log(`  Scope: ${router.scope}`)
+  console.log(`  Decisions: ${router.summary.decisions}`)
+  console.log(`  Outcomes: ${router.summary.outcomes}`)
+  console.log(`  Avg score: ${router.summary.avgSuccessScore.toFixed(1)}/100`)
+  console.log(`  Pass rate: ${(router.summary.qualityPassRate * 100).toFixed(0)}%`)
+  console.log(`  Escalations: ${router.summary.escalationCount}`)
+  console.log(`  Auto reviewers: ${router.summary.autoReviewerCount}`)
+  db.close()
+}
+
+async function router(): Promise<void> {
+  const { db } = await import('./services/Database.js')
+  const { modelRegistry } = await import('./services/ModelRegistry.js')
+  const { routerLearningService } = await import('./services/RouterLearningService.js')
+
+  await db.init()
+  modelRegistry.init()
+
+  const days = args.includes('--week') ? 7 : 30
+  console.log(routerLearningService.formatReport(process.cwd(), days))
   db.close()
 }
 
@@ -244,6 +271,7 @@ Usage:
   better-code-soul status    Check installation status
   better-code-soul doctor    Run install/auth/tool diagnostics
   better-code-soul quality   Show quality loop report
+  better-code-soul router    Show auto-improving router report
   better-code-soul dashboard Open web dashboard
   better-code-soul mcp       Start MCP server (stdio)
   better-code-soul help      Show this help
@@ -259,6 +287,7 @@ OpenCode Commands (after setup):
   /bcs-optimize        Optimization suggestions
   /bcs-doctor          Install/auth/tool diagnostics
   /bcs-quality         Quality score and cost per successful task
+  /bcs-router          Auto-improving router report
 `)
 }
 
@@ -278,6 +307,12 @@ switch (command) {
   case 'quality':
     quality().catch((err) => {
       console.error(`Quality report failed: ${err}`)
+      process.exit(1)
+    })
+    break
+  case 'router':
+    router().catch((err) => {
+      console.error(`Router report failed: ${err}`)
       process.exit(1)
     })
     break

@@ -7,6 +7,7 @@ import { authReader } from '../services/AuthReader.js'
 import { graphifyService } from '../services/GraphifyService.js'
 import { contextModeService } from '../services/ContextModeService.js'
 import { doctorService } from '../services/DoctorService.js'
+import { routerLearningService } from '../services/RouterLearningService.js'
 import { optimizationRules, getOptimizationStats } from '../tools/optimizationRules.js'
 import { formatBytes, formatCost, formatDuration, formatRelativeTime, formatTokens } from '../utils/format.js'
 import { logger } from '../utils/logger.js'
@@ -263,6 +264,7 @@ function getAgentsData() {
 
 function getQualityData() {
   const summary = db.getQualitySummary(30)
+  const router = routerLearningService.getReport(process.cwd(), 30)
   const modelPerformance = db.getModelPerformanceHistory(30).map((model) => ({
     ...model,
     successRateLabel: `${Math.round(model.successRate * 100)}%`,
@@ -283,6 +285,23 @@ function getQualityData() {
       conflictRateLabel: `${Math.round(summary.conflictRate * 100)}%`,
     },
     modelPerformance,
+    router: {
+      ...router,
+      summary: {
+        ...router.summary,
+        avgSuccessScoreLabel: `${router.summary.avgSuccessScore.toFixed(1)}/100`,
+        qualityPassRateLabel: `${Math.round(router.summary.qualityPassRate * 100)}%`,
+      },
+      recommendations: router.recommendations.map((row) => ({
+        ...row,
+        qualityPassRateLabel: `${Math.round(row.qualityPassRate * 100)}%`,
+        stepSuccessRateLabel: `${Math.round(row.stepSuccessRate * 100)}%`,
+        avgSuccessScoreLabel: `${row.avgSuccessScore.toFixed(1)}`,
+        avgCostLabel: formatCost(row.avgCost),
+        avgDurationLabel: formatDuration(row.avgDurationMs),
+        retryRateLabel: `${Math.round(row.retryRate * 100)}%`,
+      })),
+    },
     recentRuns,
     lastRun: lastRun ? formatQualityRun(lastRun) : null,
   }
@@ -637,9 +656,13 @@ function renderDashboardHtml(): string {
     function renderQuality() {
       const quality = state.quality;
       const summary = quality.summary;
+      const router = quality.router;
       const modelRows = quality.modelPerformance.length ? quality.modelPerformance.map(model => \`
         <tr><td><strong>\${esc(model.model)}</strong><br><span class="muted">\${esc(model.role)}</span></td><td>\${esc(model.runs)}</td><td>\${esc(model.successRateLabel)}</td><td>\${esc(model.avgCostLabel)}</td><td>\${esc(model.avgDurationLabel)}</td><td>\${esc(model.avgTokensLabel)}</td></tr>
       \`).join('') : '<tr><td colspan="6" class="muted">Model performance history yok.</td></tr>';
+      const routerRows = router.recommendations.length ? router.recommendations.map(model => \`
+        <tr><td><strong>\${esc(model.model)}</strong><br><span class="muted">\${esc(model.tier)}</span></td><td>\${esc(model.runs)}</td><td>\${esc(model.qualityPassRateLabel)}</td><td>\${esc(model.avgSuccessScoreLabel)}</td><td>\${esc(model.avgCostLabel)}</td><td>\${esc(model.retryRateLabel)}</td></tr>
+      \`).join('') : '<tr><td colspan="6" class="muted">Router learning history yok.</td></tr>';
       const recent = quality.recentRuns.length ? quality.recentRuns.map(run => \`
         <div class="step"><strong>#\${esc(run.orchestration_id)}</strong><div><div class="track"><span style="width:\${Math.max(5, Math.min(100, Number(run.success_score || 0)))}%"></span></div><span class="muted">\${esc(run.timestampLabel)} / \${esc(run.costPerSuccessfulTaskLabel)} success cost / \${esc(run.diffSummaryLabel)}</span></div><span class="badge \${run.passed ? 'review' : 'catalog'}">\${esc(run.successScoreLabel)}</span></div>
       \`).join('') : '<div class="empty">Henuz quality run yok. /bcs-agent calistir.</div>';
@@ -649,6 +672,7 @@ function renderDashboardHtml(): string {
           <section class="card third"><h2>Success Score</h2><strong style="font-size:34px">\${esc(summary.avgSuccessScoreLabel)}</strong><p class="muted">\${esc(summary.successRateLabel)} pass rate / \${esc(summary.totalRuns)} run</p></section>
           <section class="card third"><h2>Cost / Success</h2><strong style="font-size:34px">\${esc(summary.avgCostPerSuccessfulTaskLabel)}</strong><p class="muted">Basarisiz task maliyeti dahil</p></section>
           <section class="card third"><h2>Risk</h2><p>Retry: \${esc(summary.retryRateLabel)}</p><p>Conflict: \${esc(summary.conflictRateLabel)}</p></section>
+          <section class="card full"><h2>Auto-Improving Router</h2><p class="muted">\${esc(router.scope)} scope / \${esc(router.summary.decisions)} decisions / \${esc(router.summary.outcomes)} outcomes / \${esc(router.summary.qualityPassRateLabel)} pass / \${esc(router.summary.escalationCount)} escalation / \${esc(router.summary.autoReviewerCount)} auto-reviewer</p><table><thead><tr><th>Model</th><th>Runs</th><th>Quality</th><th>Avg Score</th><th>Avg Cost</th><th>Retry</th></tr></thead><tbody>\${routerRows}</tbody></table></section>
           <section class="card full"><h2>Model Performance</h2><table><thead><tr><th>Model</th><th>Runs</th><th>Success</th><th>Avg Cost</th><th>Avg Duration</th><th>Avg Tokens</th></tr></thead><tbody>\${modelRows}</tbody></table></section>
           <section class="card full"><h2>Recent Quality Runs</h2><div class="steps">\${recent}</div></section>
         </div>\`;

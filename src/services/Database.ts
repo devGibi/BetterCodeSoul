@@ -160,6 +160,42 @@ export class BcsDatabase {
         created_at INTEGER DEFAULT (strftime('%s','now') * 1000)
       );
 
+      CREATE TABLE IF NOT EXISTS router_decisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        orchestration_id INTEGER REFERENCES orchestrations(id),
+        repo_key TEXT,
+        task_type TEXT,
+        complexity TEXT,
+        tier TEXT NOT NULL,
+        role TEXT,
+        selected_model TEXT NOT NULL,
+        strategy TEXT,
+        reason TEXT,
+        candidates TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS router_model_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        orchestration_id INTEGER REFERENCES orchestrations(id),
+        quality_run_id INTEGER REFERENCES quality_runs(id),
+        repo_key TEXT,
+        task_type TEXT,
+        complexity TEXT,
+        tier TEXT NOT NULL,
+        role TEXT,
+        model TEXT NOT NULL,
+        step_success INTEGER DEFAULT 0,
+        quality_passed INTEGER DEFAULT 0,
+        success_score REAL DEFAULT 0,
+        cost_usd REAL DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        retry_count INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
       CREATE INDEX IF NOT EXISTS idx_tool_calls_timestamp ON tool_calls(timestamp);
       CREATE INDEX IF NOT EXISTS idx_tool_calls_tool ON tool_calls(tool);
@@ -171,6 +207,9 @@ export class BcsDatabase {
       CREATE INDEX IF NOT EXISTS idx_quality_runs_orch ON quality_runs(orchestration_id);
       CREATE INDEX IF NOT EXISTS idx_quality_runs_created ON quality_runs(created_at);
       CREATE INDEX IF NOT EXISTS idx_quality_command_runs_quality ON quality_command_runs(quality_run_id);
+      CREATE INDEX IF NOT EXISTS idx_router_decisions_repo ON router_decisions(repo_key, task_type, tier, created_at);
+      CREATE INDEX IF NOT EXISTS idx_router_outcomes_repo ON router_model_outcomes(repo_key, task_type, tier, created_at);
+      CREATE INDEX IF NOT EXISTS idx_router_outcomes_model ON router_model_outcomes(model, tier, created_at);
     `)
 
     this.db.exec(`
@@ -622,6 +661,86 @@ export class BcsDatabase {
     )
   }
 
+  saveRouterDecision(data: {
+    orchestrationId?: number
+    repoKey?: string
+    taskType?: string
+    complexity?: string
+    tier: string
+    role?: string
+    selectedModel: string
+    strategy: string
+    reason: string
+    candidates: unknown
+  }): number {
+    const result = this.db.prepare(`
+      INSERT INTO router_decisions (orchestration_id, repo_key, task_type, complexity, tier, role, selected_model, strategy, reason, candidates, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.orchestrationId || null,
+      data.repoKey || null,
+      data.taskType || null,
+      data.complexity || null,
+      data.tier,
+      data.role || null,
+      data.selectedModel,
+      data.strategy,
+      data.reason,
+      JSON.stringify(data.candidates),
+      Date.now()
+    )
+    return Number(result.lastInsertRowid)
+  }
+
+  saveRouterModelOutcomes(outcomes: Array<{
+    orchestrationId: number
+    qualityRunId: number
+    repoKey: string
+    taskType: string
+    complexity: string
+    tier: string
+    role: string
+    model: string
+    stepSuccess: boolean
+    qualityPassed: boolean
+    successScore: number
+    cost: number
+    durationMs: number
+    inputTokens: number
+    outputTokens: number
+    retryCount: number
+  }>): void {
+    if (outcomes.length === 0) return
+    const stmt = this.db.prepare(`
+      INSERT INTO router_model_outcomes (orchestration_id, quality_run_id, repo_key, task_type, complexity, tier, role, model, step_success, quality_passed, success_score, cost_usd, duration_ms, input_tokens, output_tokens, retry_count, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const tx = this.db.transaction((rows: typeof outcomes) => {
+      for (const row of rows) {
+        stmt.run(
+          row.orchestrationId,
+          row.qualityRunId,
+          row.repoKey,
+          row.taskType,
+          row.complexity,
+          row.tier,
+          row.role,
+          row.model,
+          row.stepSuccess ? 1 : 0,
+          row.qualityPassed ? 1 : 0,
+          row.successScore,
+          row.cost,
+          row.durationMs,
+          row.inputTokens,
+          row.outputTokens,
+          row.retryCount,
+          Date.now()
+        )
+      }
+    })
+    tx(outcomes)
+  }
+
   saveQualityCheckpoint(data: {
     id: string
     orchestrationId: number
@@ -794,6 +913,176 @@ export class BcsDatabase {
       avgCost: row.avgCost || 0,
       avgTokens: row.avgTokens || 0,
     }))
+  }
+
+  getRouterModelStats(input: {
+    days: number
+    tier?: string
+    repoKey?: string
+    taskType?: string
+    complexity?: string
+  }): Array<{
+    model: string
+    tier: string
+    role: string
+    runs: number
+    qualityPassRate: number
+    stepSuccessRate: number
+    avgSuccessScore: number
+    avgCost: number
+    avgDurationMs: number
+    avgTokens: number
+    retryRate: number
+  }> {
+    const start = Date.now() - input.days * 86_400_000
+    const where = ['created_at >= ?']
+    const params: unknown[] = [start]
+
+    if (input.tier) {
+      where.push('tier = ?')
+      params.push(input.tier)
+    }
+    if (input.repoKey) {
+      where.push('repo_key = ?')
+      params.push(input.repoKey)
+    }
+    if (input.taskType) {
+      where.push('task_type = ?')
+      params.push(input.taskType)
+    }
+    if (input.complexity) {
+      where.push('complexity = ?')
+      params.push(input.complexity)
+    }
+
+    const rows = this.db.prepare(`
+      SELECT
+        model,
+        tier,
+        role,
+        COUNT(*) as runs,
+        AVG(quality_passed) as qualityPassRate,
+        AVG(step_success) as stepSuccessRate,
+        AVG(success_score) as avgSuccessScore,
+        AVG(cost_usd) as avgCost,
+        AVG(duration_ms) as avgDurationMs,
+        AVG(input_tokens + output_tokens) as avgTokens,
+        AVG(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) as retryRate
+      FROM router_model_outcomes
+      WHERE ${where.join(' AND ')}
+      GROUP BY model, tier, role
+      ORDER BY runs DESC, qualityPassRate DESC, avgSuccessScore DESC
+    `).all(...params) as any[]
+
+    return rows.map((row) => ({
+      model: row.model,
+      tier: row.tier,
+      role: row.role,
+      runs: row.runs || 0,
+      qualityPassRate: row.qualityPassRate || 0,
+      stepSuccessRate: row.stepSuccessRate || 0,
+      avgSuccessScore: row.avgSuccessScore || 0,
+      avgCost: row.avgCost || 0,
+      avgDurationMs: row.avgDurationMs || 0,
+      avgTokens: row.avgTokens || 0,
+      retryRate: row.retryRate || 0,
+    }))
+  }
+
+  getRouterRecommendations(days: number, repoKey?: string, limit = 20): Array<{
+    model: string
+    tier: string
+    runs: number
+    qualityPassRate: number
+    stepSuccessRate: number
+    avgSuccessScore: number
+    avgCost: number
+    avgDurationMs: number
+    retryRate: number
+  }> {
+    const start = Date.now() - days * 86_400_000
+    const where = ['created_at >= ?']
+    const params: unknown[] = [start]
+    if (repoKey) {
+      where.push('repo_key = ?')
+      params.push(repoKey)
+    }
+    params.push(limit)
+
+    const rows = this.db.prepare(`
+      SELECT
+        model,
+        tier,
+        COUNT(*) as runs,
+        AVG(quality_passed) as qualityPassRate,
+        AVG(step_success) as stepSuccessRate,
+        AVG(success_score) as avgSuccessScore,
+        AVG(cost_usd) as avgCost,
+        AVG(duration_ms) as avgDurationMs,
+        AVG(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) as retryRate
+      FROM router_model_outcomes
+      WHERE ${where.join(' AND ')}
+      GROUP BY model, tier
+      ORDER BY qualityPassRate DESC, avgSuccessScore DESC, runs DESC
+      LIMIT ?
+    `).all(...params) as any[]
+
+    return rows.map((row) => ({
+      model: row.model,
+      tier: row.tier,
+      runs: row.runs || 0,
+      qualityPassRate: row.qualityPassRate || 0,
+      stepSuccessRate: row.stepSuccessRate || 0,
+      avgSuccessScore: row.avgSuccessScore || 0,
+      avgCost: row.avgCost || 0,
+      avgDurationMs: row.avgDurationMs || 0,
+      retryRate: row.retryRate || 0,
+    }))
+  }
+
+  getRouterSummary(days: number, repoKey?: string): {
+    decisions: number
+    outcomes: number
+    avgSuccessScore: number
+    qualityPassRate: number
+    escalationCount: number
+    autoReviewerCount: number
+  } {
+    const start = Date.now() - days * 86_400_000
+    const decisionWhere = ['created_at >= ?']
+    const outcomeWhere = ['created_at >= ?']
+    const decisionParams: unknown[] = [start]
+    const outcomeParams: unknown[] = [start]
+    if (repoKey) {
+      decisionWhere.push('repo_key = ?')
+      outcomeWhere.push('repo_key = ?')
+      decisionParams.push(repoKey)
+      outcomeParams.push(repoKey)
+    }
+
+    const decisionRow = this.db.prepare(`
+      SELECT
+        COUNT(*) as decisions,
+        SUM(CASE WHEN strategy LIKE '%escalat%' THEN 1 ELSE 0 END) as escalationCount,
+        SUM(CASE WHEN strategy LIKE '%auto-review%' THEN 1 ELSE 0 END) as autoReviewerCount
+      FROM router_decisions
+      WHERE ${decisionWhere.join(' AND ')}
+    `).get(...decisionParams) as any
+
+    const outcomeRow = this.db.prepare(`
+      SELECT COUNT(*) as outcomes, AVG(success_score) as avgSuccessScore, AVG(quality_passed) as qualityPassRate
+      FROM router_model_outcomes
+      WHERE ${outcomeWhere.join(' AND ')}
+    `).get(...outcomeParams) as any
+
+    return {
+      decisions: decisionRow?.decisions || 0,
+      outcomes: outcomeRow?.outcomes || 0,
+      avgSuccessScore: outcomeRow?.avgSuccessScore || 0,
+      qualityPassRate: outcomeRow?.qualityPassRate || 0,
+      escalationCount: decisionRow?.escalationCount || 0,
+      autoReviewerCount: decisionRow?.autoReviewerCount || 0,
+    }
   }
 
   getRecentQualityRuns(limit: number): any[] {

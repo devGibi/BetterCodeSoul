@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { db } from '../services/Database.js'
-import type { Model, ModelTier } from '../services/ModelRegistry.js'
+import type { ModelTier } from '../services/ModelRegistry.js'
 import { modelRegistry } from '../services/ModelRegistry.js'
 import { graphifyService } from '../services/GraphifyService.js'
+import { ModelRouter, type RouterContext } from '../services/ModelRouter.js'
 
 export type TaskType = 'feature' | 'fix' | 'refactor' | 'review' | 'research' | 'unknown'
 
@@ -63,6 +64,10 @@ const DIR_HINTS: Record<string, string[]> = {
 
 export class TaskDecomposer {
   private matchedKeyword: string = ''
+  private modelRouter = new ModelRouter({
+    getById: (id) => modelRegistry.getById(id),
+    getAllModels: () => modelRegistry.getAllModels(),
+  })
 
   detectTaskType(request: string): TaskType {
     for (const [type, pattern] of Object.entries(TASK_PATTERNS)) {
@@ -133,28 +138,14 @@ export class TaskDecomposer {
     }
   }
 
-  private selectModel(tier: ModelTier, connected: string[]): { id: string; reason: string } {
-    const connectedModels = modelRegistry.getConnectedModels().filter(m => m.tier === tier)
-    if (connectedModels.length > 0) {
-      const cheapest = connectedModels.sort((a, b) => a.inputPrice - b.inputPrice)[0]
-      return {
-        id: cheapest.id,
-        reason: `En ucuz bagli ${tier.toUpperCase()} tier modeli ($${cheapest.inputPrice}/1M giris)`,
-      }
-    }
-
-    const catalogModels = modelRegistry.getModelsByTier(tier)
-    if (catalogModels.length > 0) {
-      const cheapest = catalogModels.sort((a, b) => a.inputPrice - b.inputPrice)[0]
-      return {
-        id: cheapest.id,
-        reason: `Katalog fallback — ${tier.toUpperCase()} tier ($${cheapest.inputPrice}/1M giris) [BAGLI DEGIL]`,
-      }
-    }
-
+  private selectModel(tier: ModelTier, connected: string[], context: Omit<RouterContext, 'strategy'> = {}): { id: string; reason: string } {
+    const result = this.modelRouter.route(tier, connected, {
+      ...context,
+      strategy: tier === 'think' ? 'planner-strong' : tier === 'code' ? 'cheap-first' : 'learned',
+    })
     return {
-      id: 'unknown',
-      reason: `${tier.toUpperCase()} tier icin model bulunamadi`,
+      id: result.model.id,
+      reason: result.candidate.reason,
     }
   }
 
@@ -235,23 +226,23 @@ export class TaskDecomposer {
 
     if (complexity === 'simple') {
       reasoning.push('Planlama asamasi atlandi — basit gorev, tek coder yeterli')
-      const codeModel = this.selectModel('code', connected)
+      const codeModel = this.selectModel('code', connected, { projectPath: ctx.projectPath, taskType, complexity, role: 'coder' })
       coderModels = [{ id: codeModel.id, reason: codeModel.reason, task: request }]
     } else {
-      const thinkModel = this.selectModel('think', connected)
+      const thinkModel = this.selectModel('think', connected, { projectPath: ctx.projectPath, taskType, complexity, role: 'planner' })
       plannerModel = { id: thinkModel.id, reason: thinkModel.reason }
       reasoning.push(`Planner: ${thinkModel.id}`)
 
       const coderCount = complexity === 'medium' ? 2 : Math.min(4, this.estimateSubtasks(request))
-      const codeModel = this.selectModel('code', connected)
+      const codeModel = this.selectModel('code', connected, { projectPath: ctx.projectPath, taskType, complexity, role: 'coder' })
       coderModels = Array.from({ length: coderCount }, (_, i) => ({
         id: codeModel.id,
-        reason: `Paralel coder ${i + 1}/${coderCount} — $${modelRegistry.getById(codeModel.id)?.inputPrice || 0.6}/1M giris`,
+        reason: `Paralel coder ${i + 1}/${coderCount} — ${codeModel.reason}`,
         task: `Alt gorev ${i + 1} (planlama asamasinda detaylandirilacak)`,
       }))
       reasoning.push(`${coderCount} paralel coder baslatilacak`)
 
-      const reviewModel = this.selectModel('review', connected)
+      const reviewModel = this.selectModel('review', connected, { projectPath: ctx.projectPath, taskType, complexity, role: 'reviewer' })
       reviewerModel = { id: reviewModel.id, reason: reviewModel.reason }
     }
 

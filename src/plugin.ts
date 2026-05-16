@@ -7,6 +7,7 @@ import { contextModeService } from './services/ContextModeService.js'
 import { costCalculator } from './services/CostCalculator.js'
 import { configPatcher } from './services/ConfigPatcher.js'
 import { doctorService } from './services/DoctorService.js'
+import { routerLearningService } from './services/RouterLearningService.js'
 import { Orchestrator } from './subagents/Orchestrator.js'
 import { onToolBefore } from './hooks/toolBefore.js'
 import { onToolAfter } from './hooks/toolAfter.js'
@@ -382,6 +383,7 @@ export const BetterCodeSoulPlugin = async (_app?: unknown): Promise<PluginDefini
           const summary = db.getQualitySummary(days)
           const models = db.getModelPerformanceHistory(days).slice(0, 12)
           const recent = db.getRecentQualityRuns(5)
+          const router = routerLearningService.getReport(process.cwd(), days)
 
           let output = `## Quality Loop — ${period === 'week' ? 'This Week' : 'Last 30 Days'}\n\n`
           output += `| Metric | Value |\n|---|---:|\n`
@@ -403,6 +405,10 @@ export const BetterCodeSoulPlugin = async (_app?: unknown): Promise<PluginDefini
             output += `\n`
           }
 
+          output += `### Router Learning\n`
+          output += `| Decisions | Outcomes | Avg Score | Pass Rate | Escalations | Auto Reviewers |\n|---:|---:|---:|---:|---:|---:|\n`
+          output += `| ${router.summary.decisions} | ${router.summary.outcomes} | ${router.summary.avgSuccessScore.toFixed(1)}/100 | ${(router.summary.qualityPassRate * 100).toFixed(0)}% | ${router.summary.escalationCount} | ${router.summary.autoReviewerCount} |\n\n`
+
           output += `### Recent Runs\n`
           if (recent.length === 0) {
             output += `_No quality runs yet. Run /bcs-agent to create one._`
@@ -413,6 +419,20 @@ export const BetterCodeSoulPlugin = async (_app?: unknown): Promise<PluginDefini
           }
 
           return output
+        },
+      },
+
+      bcs_router: {
+        description: 'Auto-improving router report — learned model rankings and escalation stats',
+        parameters: {
+          period: {
+            type: 'string',
+            description: 'Report period: week or month',
+            enum: ['week', 'month'],
+          },
+        },
+        execute: async ({ period = 'month' }) => {
+          return routerLearningService.formatReport(process.cwd(), period === 'week' ? 7 : 30)
         },
       },
 

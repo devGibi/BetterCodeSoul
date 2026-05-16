@@ -25,6 +25,7 @@ better-code-soul setup
 | `/bcs-optimize` | Token optimizasyon onerileri |
 | `/bcs-doctor` | Kurulum, auth, depolama ve arac saglik kontrolu |
 | `/bcs-quality` | Kalite raporu — basari skoru, model performansi, basarili task maliyeti |
+| `/bcs-router` | Auto-improving router raporu — learned model ranking ve escalation |
 
 ## Dashboard
 
@@ -99,10 +100,25 @@ better-code-soul quality
 
 Model secimi `src/services/ModelRouter.ts` dosyasinda izole edilmistir. Yeni model cikinca routing tablosuna bir satir eklemen yeterli — baska hicbir dosyaya dokunma.
 
+Faz 3 auto-improving router ekler. Quality Loop bittikten sonra repo/task/model outcome'larini kaydeder ve zamanla daha iyi model secmek icin bu gecmisi kullanir:
+
+- Repository, gorev tipi, karmasiklik ve tier bazli model performansi ogrenir
+- Planlama icin guclu THINK modeli, ilk uygulama icin ucuz CODE modeli kullanir
+- Kalite dusukse repair retry'yi basarisiz ucuz modelden uzaklastirarak escalate eder
+- Review atlanan basit islerde kalite dusukse otomatik reviewer calistirir
+- Learned ranking, pass rate, escalation sayisi ve auto-reviewer sayisini `/bcs-router` ile raporlar
+
 Routing onceligi:
 - **PLAN tier**: gemini-2.5-pro → claude-opus-4-5 → o3
 - **CODE tier**: kimi-k2 → deepseek-v3 → glm-4-plus → claude-sonnet-4-5 → gpt-4o → gemini-2.5-flash
 - **REVIEW tier**: claude-haiku-4-5 → gpt-4o-mini → gemini-2.5-flash
+
+Kullanim:
+
+```bash
+/bcs-router month
+better-code-soul router
+```
 
 ## Graphify
 
@@ -144,6 +160,7 @@ better-code-soul setup     # Plugin ve komutlari OpenCode'a kaydet
 better-code-soul status    # Kurulum durumunu kontrol et
 better-code-soul doctor    # Kurulum/auth/arac saglik kontrolu
 better-code-soul quality   # Quality loop raporu
+better-code-soul router    # Auto-improving router raporu
 better-code-soul dashboard # Lokal web dashboard'u baslat
 better-code-soul mcp       # MCP server baslat (stdio)
 better-code-soul help      # Yardim goster
