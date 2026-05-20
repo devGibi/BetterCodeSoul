@@ -1,8 +1,6 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { runCommand } from '../utils/spawn.js'
-import type { Model, ModelTier } from '../services/ModelRegistry.js'
+import type { Model } from '../services/ModelRegistry.js'
+import { bcsConfigService } from '../services/BcsConfigService.js'
+import { getCodingToolAdapter } from '../adapters/AdapterRegistry.js'
 import { logger } from '../utils/logger.js'
 
 export type AgentType = 'planner' | 'coder' | 'reviewer' | 'researcher'
@@ -14,6 +12,8 @@ export interface AgentConfig {
   context?: string
   outputFiles?: string[]
   maxTokens?: number
+  cwd?: string
+  tool?: string
 }
 
 export interface AgentResult {
@@ -105,49 +105,26 @@ export class AgentRunner {
   }
 
   private async runViaCLI(config: AgentConfig, startTime: number, agentId: string): Promise<AgentResult> {
-    const promptFile = path.join(os.tmpdir(), `bcs-agent-${Date.now()}.txt`)
-    await fs.promises.writeFile(promptFile, this.buildPrompt(config), 'utf-8')
+    const cwd = config.cwd || process.cwd()
+    const toolId = config.tool || bcsConfigService.getDefaultTool(cwd)
+    const adapter = getCodingToolAdapter(toolId)
+    const result = await adapter.runTask({
+      role: config.agentType,
+      model: config.model,
+      prompt: this.buildPrompt(config),
+      maxTokens: config.maxTokens,
+      cwd,
+    })
 
-    try {
-      const result = await runCommand('opencode', [
-        '--model', config.model.id,
-        '--no-interactive',
-        '--prompt-file', promptFile,
-        '--max-tokens', String(config.maxTokens || 3000),
-        '--output', 'json',
-      ], { timeout: 300_000 })
-
-      if (result.exitCode !== 0) {
-        return {
-          agentId,
-          output: '',
-          inputTokens: 0,
-          outputTokens: 0,
-          model: config.model.id,
-          durationMs: Date.now() - startTime,
-          success: false,
-          error: compactError(result.stderr || result.stdout || `opencode exited with ${result.exitCode}`),
-        }
-      }
-
-      let parsed: { text?: string; content?: string; usage?: { input_tokens?: number; output_tokens?: number } }
-      try {
-        parsed = JSON.parse(result.stdout)
-      } catch {
-        parsed = { text: result.stdout }
-      }
-
-      return {
-        agentId,
-        output: parsed.text || parsed.content || result.stdout,
-        inputTokens: parsed.usage?.input_tokens || 0,
-        outputTokens: parsed.usage?.output_tokens || 0,
-        model: config.model.id,
-        durationMs: Date.now() - startTime,
-        success: true,
-      }
-    } finally {
-      await fs.promises.unlink(promptFile).catch(() => {})
+    return {
+      agentId,
+      output: result.output,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      model: result.model === 'unknown' ? config.model.id : result.model,
+      durationMs: result.durationMs || Date.now() - startTime,
+      success: result.success,
+      error: result.error,
     }
   }
 
@@ -167,8 +144,4 @@ export class AgentRunner {
 
     return parts.filter(Boolean).join('\n')
   }
-}
-
-function compactError(value: string): string {
-  return value.replace(/\s+/g, ' ').trim().slice(0, 1000)
 }

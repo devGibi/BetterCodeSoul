@@ -1,12 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { commandExists } from '../utils/spawn.js'
 import { paths } from '../utils/platform.js'
 import { authReader } from './AuthReader.js'
 import { graphifyService } from './GraphifyService.js'
 import { contextModeService } from './ContextModeService.js'
 import { db } from './Database.js'
 import { projectCommandDetector } from './ProjectCommandDetector.js'
+import { bcsConfigService } from './BcsConfigService.js'
+import { toolRegistryService } from './ToolRegistryService.js'
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail'
 
@@ -50,8 +51,9 @@ export class DoctorService {
 
     checks.push(this.checkNode())
     checks.push(this.checkPackageBuild(projectPath))
+    checks.push(this.checkProjectInit(projectPath))
     checks.push(this.checkProjectCommands(projectPath))
-    checks.push(await this.checkOpencodeCommand())
+    checks.push(await this.checkCodingTools())
     checks.push(this.checkDataDirectory())
     checks.push(this.checkGlobalConfig())
     checks.push(...await this.checkAuth())
@@ -140,15 +142,48 @@ export class DoctorService {
     }
   }
 
-  private async checkOpencodeCommand(): Promise<DoctorCheck> {
-    if (await commandExists('opencode')) {
-      return { area: 'OpenCode', status: 'pass', message: '`opencode` command is available' }
+  private checkProjectInit(projectPath: string): DoctorCheck {
+    if (bcsConfigService.isProjectInitialized(projectPath)) {
+      return { area: 'Project Config', status: 'pass', message: 'Project is initialized for BCS', detail: path.join(projectPath, '.bcs.json') }
     }
+
     return {
-      area: 'OpenCode',
-      status: 'fail',
-      message: '`opencode` command was not found',
-      remedy: 'Install OpenCode or add it to PATH, then rerun `better-code-soul setup`.',
+      area: 'Project Config',
+      status: 'warn',
+      message: 'Project is not initialized for BCS',
+      remedy: 'Run `bcs init` in this repo.',
+    }
+  }
+
+  private async checkCodingTools(): Promise<DoctorCheck> {
+    const config = await toolRegistryService.refreshGlobalRegistry()
+    const enabled = Object.entries(config.tools).filter(([, tool]) => tool.enabled)
+    const available = enabled.filter(([, tool]) => tool.status === 'available')
+
+    if (available.length > 0) {
+      return {
+        area: 'Coding Tools',
+        status: 'pass',
+        message: `${available.length} enabled tool available`,
+        detail: available.map(([id, tool]) => `${id}:${tool.command}`).join(', '),
+      }
+    }
+
+    if (enabled.length > 0) {
+      return {
+        area: 'Coding Tools',
+        status: 'warn',
+        message: 'Tools are enabled but not available on PATH',
+        detail: enabled.map(([id, tool]) => `${id}:${tool.status}`).join(', '),
+        remedy: 'Install the selected coding tool or run `bcs tools detect`.',
+      }
+    }
+
+    return {
+      area: 'Coding Tools',
+      status: 'warn',
+      message: 'No coding tool enabled',
+      remedy: 'Run `bcs setup` or `bcs tools enable opencode`.',
     }
   }
 
@@ -168,6 +203,11 @@ export class DoctorService {
   }
 
   private checkGlobalConfig(): DoctorCheck {
+    const globalConfig = bcsConfigService.loadGlobalConfig()
+    if (!globalConfig.tools.opencode?.enabled) {
+      return { area: 'OpenCode Config', status: 'pass', message: 'OpenCode adapter is disabled; slash command registration is optional' }
+    }
+
     const configPath = paths.opencodeConfig()
     if (!fs.existsSync(configPath)) {
       return {

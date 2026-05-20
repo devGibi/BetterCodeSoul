@@ -1,0 +1,30 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Better Code Soul mascot logo">
+  <rect width="1024" height="1024" rx="96" fill="#080A0F"/>
+  <circle cx="512" cy="430" r="310" fill="url(#glow)" opacity="0.55"/>
+  <path d="M323 354C323 237 407 155 520 155C630 155 711 237 711 354V631C711 677 752 680 752 720C752 763 705 759 688 796C670 837 621 850 590 825C558 876 478 884 435 830C381 846 319 805 331 745C281 717 291 650 323 632V354Z" fill="#F9F5E9" stroke="#111111" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M333 392C338 236 454 132 608 155C524 176 458 225 414 302C391 343 367 374 333 392Z" fill="#E7B849" stroke="#111111" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M308 404C352 388 371 339 394 295C434 220 504 177 608 155C553 206 502 261 474 320C431 315 387 337 366 374C352 397 329 408 308 404Z" fill="#F5CF67" stroke="#111111" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M486 314C538 245 593 208 665 212C623 240 592 286 584 341C553 321 520 311 486 314Z" fill="#D59C34" stroke="#111111" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M586 329C631 238 710 236 744 329C760 374 775 392 813 397C782 423 738 427 703 399C673 374 638 347 586 329Z" fill="#E0AD43" stroke="#111111" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M399 434C427 412 457 413 479 434" stroke="#111111" stroke-width="18" stroke-linecap="round"/>
+  <path d="M542 434C582 395 629 397 653 426" stroke="#111111" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="442" cy="475" r="34" fill="#111111"/>
+  <circle cx="611" cy="467" r="38" fill="#111111"/>
+  <circle cx="627" cy="447" r="10" fill="#FFFFFF"/>
+  <path d="M492 535C520 555 565 548 587 514" stroke="#111111" stroke-width="12" stroke-linecap="round"/>
+  <path d="M496 595L553 569L612 740L524 829L444 734L496 595Z" fill="#101010" stroke="#111111" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M495 596L446 650L389 585" stroke="#D6D0C4" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M553 570L613 650L664 584" stroke="#D6D0C4" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M526 630L487 651L526 672" stroke="#FFD43B" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M552 670L515 742" stroke="#FFD43B" stroke-width="18" stroke-linecap="round"/>
+  <path d="M557 716L605 740L557 764" stroke="#FFD43B" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M520 784C497 784 497 748 520 748M576 784C599 784 599 748 576 748" stroke="#FFD43B" stroke-width="14" stroke-linecap="round"/>
+  <text x="512" y="930" text-anchor="middle" font-family="JetBrains Mono, Fira Code, Consolas, monospace" font-size="58" font-weight="800" fill="#F8F3E6" letter-spacing="1.5">Better Code Soul</text>
+  <defs>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 430) rotate(90) scale(350)">
+      <stop stop-color="#F6B73C" stop-opacity="0.95"/>
+      <stop offset="0.55" stop-color="#8E6421" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#080A0F" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>

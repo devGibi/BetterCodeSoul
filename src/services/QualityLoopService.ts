@@ -5,6 +5,7 @@ import { formatCost, formatDuration } from '../utils/format.js'
 import { projectCommandDetector, type ProjectCommand, type ProjectCommandProfile } from './ProjectCommandDetector.js'
 import { diffSummaryService, type DiffSummary } from './DiffSummaryService.js'
 import type { CheckpointResult } from './CheckpointService.js'
+import { bcsConfigService } from './BcsConfigService.js'
 
 export interface QualityCommandResult {
   kind: string
@@ -49,7 +50,7 @@ export interface QualityLoopInput {
 export class QualityLoopService {
   async run(input: QualityLoopInput): Promise<QualityLoopResult> {
     const profile = projectCommandDetector.detect(input.projectPath)
-    const detectedCommands = projectCommandDetector.getQualityCommands(input.projectPath)
+    const detectedCommands = this.getQualityCommands(input.projectPath)
     const commands: QualityCommandResult[] = []
 
     for (const command of detectedCommands) {
@@ -137,6 +138,37 @@ export class QualityLoopService {
     }
   }
 
+  private getQualityCommands(projectPath: string): ProjectCommand[] {
+    const config = bcsConfigService.loadProjectConfig(projectPath)
+    if (config) {
+      const configured = [
+        this.configuredCommand('lint', 'lint', config.quality.lint),
+        this.configuredCommand('typecheck', 'typecheck', config.quality.typecheck),
+        this.configuredCommand('test', 'test', config.quality.test),
+        this.configuredCommand('build', 'build', config.quality.build),
+      ].filter((command): command is ProjectCommand => Boolean(command))
+      if (configured.length > 0) return configured
+    }
+
+    return projectCommandDetector.getQualityCommands(projectPath)
+  }
+
+  private configuredCommand(kind: ProjectCommand['kind'], label: string, display?: string): ProjectCommand | null {
+    if (!display) return null
+    const [command, ...args] = splitCommand(display)
+    if (!command) return null
+
+    return {
+      kind,
+      label,
+      command,
+      args,
+      display,
+      source: `.bcs.json:quality.${label}`,
+      confidence: 1,
+    }
+  }
+
   private score(input: { commands: QualityCommandResult[]; allResults: AgentResult[]; merged: MergedResult; retryCount: number; diffSummary: DiffSummary }): number {
     const commandRatio = input.commands.length > 0
       ? input.commands.filter((command) => command.success).length / input.commands.length
@@ -161,6 +193,16 @@ export class QualityLoopService {
 function tail(value: string, max = 2000): string {
   const compact = value.replace(/\r/g, '').trim()
   return compact.length > max ? compact.slice(-max) : compact
+}
+
+function splitCommand(display: string): string[] {
+  const parts: string[] = []
+  const pattern = /"([^"]+)"|'([^']+)'|(\S+)/g
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(display)) !== null) {
+    parts.push(match[1] || match[2] || match[3])
+  }
+  return parts
 }
 
 export const qualityLoopService = new QualityLoopService()

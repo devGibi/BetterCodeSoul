@@ -1,20 +1,27 @@
 import Database from 'better-sqlite3'
 import fs from 'node:fs'
 import path from 'node:path'
-import { paths } from '../utils/platform.js'
+import { paths, type BcsDataScope } from '../utils/platform.js'
 import { logger } from '../utils/logger.js'
 
 export class BcsDatabase {
   private db!: Database.Database
+  private dbPath: string | null = null
+  private ready = false
 
-  async init(): Promise<void> {
-    const dbPath = paths.hubDb()
+  async init(options: { projectPath?: string; scope?: BcsDataScope; dbPath?: string } = {}): Promise<void> {
+    const dbPath = options.dbPath || paths.activeDb(options.projectPath || process.cwd(), options.scope || 'auto')
+    if (this.ready && this.dbPath === dbPath) return
+    if (this.ready) this.close()
+
     const dir = path.dirname(dbPath)
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
     }
 
     this.db = new Database(dbPath)
+    this.dbPath = dbPath
+    this.ready = true
     this.db.pragma('journal_mode = WAL')
     this.db.pragma('foreign_keys = ON')
     this.migrate()
@@ -222,9 +229,15 @@ export class BcsDatabase {
   }
 
   close(): void {
-    if (this.db) {
+    if (this.ready && this.db) {
       this.db.close()
+      this.ready = false
+      this.dbPath = null
     }
+  }
+
+  getPath(): string | null {
+    return this.dbPath
   }
 
   saveToolCall(call: {

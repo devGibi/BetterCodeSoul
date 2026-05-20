@@ -3,7 +3,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import readline, { type Interface as ReadlineInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
+import { BCS_WELCOME_LOGO, BCS_WELCOME_TAGLINE } from './tui/logo.js'
 
 const args = process.argv.slice(2)
 const command = args[0]
@@ -84,8 +86,37 @@ function isBetterCodeSoulPlugin(entry: unknown): boolean {
   return false
 }
 
-function setup(): void {
-  console.log('Setting up Better Code Soul...\n')
+async function setup(): Promise<void> {
+  const { bcsConfigService } = await import('./services/BcsConfigService.js')
+  const { toolRegistryService } = await import('./services/ToolRegistryService.js')
+  const autoYes = args.includes('--yes') || args.includes('-y') || !process.stdin.isTTY
+
+  console.log(BCS_WELCOME_LOGO)
+  console.log(`\n${BCS_WELCOME_TAGLINE}\n`)
+  console.log('Global setup: detecting coding tools...\n')
+
+  let globalConfig = await toolRegistryService.refreshGlobalRegistry({ enableAvailable: autoYes })
+  globalConfig = await selectToolsIfInteractive(globalConfig, autoYes)
+  bcsConfigService.saveGlobalConfig(globalConfig)
+
+  console.log(toolRegistryService.formatTools(globalConfig))
+
+  const openCodeEnabled = globalConfig.tools.opencode?.enabled
+  if (openCodeEnabled) {
+    registerOpenCodeCommands()
+  } else {
+    console.log('\nOpenCode adapter is disabled. You can enable it later with: bcs tools enable opencode')
+  }
+
+  ensureGlobalDataDirs()
+
+  console.log('\nSetup complete.')
+  console.log('Next: cd into a repo and run `bcs init`.')
+  if (openCodeEnabled) console.log('OpenCode users: restart OpenCode, then run `/bcs-doctor`.')
+}
+
+function registerOpenCodeCommands(): void {
+  console.log('\nRegistering OpenCode plugin and slash commands...')
 
   const configPath = getConfigPath()
   const configDir = path.dirname(configPath)
@@ -142,6 +173,10 @@ function setup(): void {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8')
   }
 
+  console.log(`  OpenCode config: ${configPath}`)
+}
+
+function ensureGlobalDataDirs(): void {
   const hubData = getHubDataPath()
   if (!fs.existsSync(hubData)) {
     fs.mkdirSync(hubData, { recursive: true })
@@ -152,18 +187,73 @@ function setup(): void {
   }
 
   console.log(`  Data directory: ${hubData}`)
-  console.log(`  Config: ${configPath}`)
-  console.log('\nSetup complete. Quit and restart OpenCode, then run: /bcs-doctor')
 }
 
-function status(): void {
+async function selectToolsIfInteractive(config: import('./services/BcsConfigService.js').GlobalBcsConfig, autoYes: boolean): Promise<import('./services/BcsConfigService.js').GlobalBcsConfig> {
+  if (autoYes) return config
+
+  const { CODING_TOOL_DEFINITIONS } = await import('./services/ToolRegistryService.js')
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+
+  try {
+    console.log('Select coding tools to connect. Press Enter to accept defaults.\n')
+    for (const definition of CODING_TOOL_DEFINITIONS) {
+      const current = config.tools[definition.id]
+      const defaultEnabled = current?.enabled || current?.status === 'available'
+      const suffix = current?.status === 'available' ? 'available' : 'not installed'
+      const answer = await ask(rl, `Enable ${definition.label}? ${defaultEnabled ? '[Y/n]' : '[y/N]'} (${suffix}) `)
+      const normalized = answer.trim().toLowerCase()
+      const enabled = normalized ? ['y', 'yes', 'e', 'evet'].includes(normalized) : defaultEnabled
+      config.tools[definition.id] = {
+        enabled,
+        command: current?.command || definition.command,
+        status: current?.status || 'unknown',
+        label: definition.label,
+        detectedAt: current?.detectedAt,
+      }
+    }
+
+    const enabledAvailable = CODING_TOOL_DEFINITIONS.find((definition) => config.tools[definition.id]?.enabled && config.tools[definition.id]?.status === 'available')
+    const enabled = CODING_TOOL_DEFINITIONS.find((definition) => config.tools[definition.id]?.enabled)
+    config.defaultTool = enabledAvailable?.id || enabled?.id || config.defaultTool
+    return config
+  } finally {
+    rl.close()
+  }
+}
+
+function ask(rl: ReadlineInterface, question: string): Promise<string> {
+  return new Promise((resolve) => rl.question(question, resolve))
+}
+
+async function status(): Promise<void> {
+  const { bcsConfigService } = await import('./services/BcsConfigService.js')
+  const { toolRegistryService } = await import('./services/ToolRegistryService.js')
   const hubData = getHubDataPath()
   const dbPath = path.join(hubData, 'data.db')
   const configPath = getConfigPath()
+  const globalConfig = bcsConfigService.loadGlobalConfig()
+  const projectConfig = bcsConfigService.loadProjectConfig(process.cwd())
 
   console.log('Better Code Soul Status\n')
-  console.log(`  Data dir: ${hubData} ${fs.existsSync(hubData) ? 'OK' : 'MISSING'}`)
-  console.log(`  Database: ${dbPath} ${fs.existsSync(dbPath) ? 'OK' : 'MISSING'}`)
+  console.log('Global')
+  console.log(`  Data dir:      ${hubData} ${fs.existsSync(hubData) ? 'OK' : 'MISSING'}`)
+  console.log(`  Global config: ${path.join(hubData, 'config.json')} ${fs.existsSync(path.join(hubData, 'config.json')) ? 'OK' : 'MISSING'}`)
+  console.log(`  Global DB:     ${dbPath} ${fs.existsSync(dbPath) ? 'OK' : 'MISSING'}`)
+  console.log(`  Default tool:  ${globalConfig.defaultTool || 'not set'}`)
+
+  console.log('\nProject')
+  console.log(`  Config:        ${path.join(process.cwd(), '.bcs.json')} ${projectConfig ? 'OK' : 'MISSING'}`)
+  console.log(`  Project DB:    ${path.join(process.cwd(), '.bcs', 'history.db')} ${fs.existsSync(path.join(process.cwd(), '.bcs', 'history.db')) ? 'OK' : 'MISSING'}`)
+  console.log(`  Default tool:  ${projectConfig?.defaultTool || '(run bcs init)'}`)
+
+  console.log('\nTools')
+  for (const definition of toolRegistryService.listDefinitions()) {
+    const tool = globalConfig.tools[definition.id]
+    console.log(`  ${definition.id.padEnd(8)} ${tool?.enabled ? 'enabled ' : 'disabled'} ${tool?.status || 'unknown'}`)
+  }
+
+  console.log('\nOpenCode')
   console.log(`  Config:   ${configPath} ${fs.existsSync(configPath) ? 'OK' : 'MISSING'}`)
 
   if (fs.existsSync(configPath)) {
@@ -179,6 +269,52 @@ function status(): void {
       console.log('  Plugin:   Could not read config')
     }
   }
+}
+
+async function initProject(): Promise<void> {
+  const { bcsConfigService } = await import('./services/BcsConfigService.js')
+  const { db } = await import('./services/Database.js')
+  const force = args.includes('--force')
+  const result = bcsConfigService.initProject(process.cwd(), { force })
+  await db.init({ projectPath: process.cwd(), scope: 'project' })
+  db.close()
+
+  console.log(result.created ? 'BCS project initialized.\n' : 'BCS project already initialized.\n')
+  console.log(`  Config:      ${result.configPath}`)
+  console.log(`  Project dir: ${result.projectDir}`)
+  console.log(`  History DB:  ${result.historyDb}`)
+  console.log(`  Reports:     ${result.reportsDir}`)
+  console.log(`  Checkpoints: ${result.checkpointsDir}`)
+  console.log('\nProject defaults')
+  console.log(`  Tool:        ${result.config.defaultTool}`)
+  console.log(`  Mode:        ${result.config.mode}`)
+  console.log(`  Risk:        ${result.config.risk}`)
+  console.log(`  Budget:      $${result.config.budget.perTask}/task, $${result.config.budget.daily}/day`)
+  console.log(`  Quality:     ${Object.values(result.config.quality).filter(Boolean).join(' · ') || 'none detected'}`)
+}
+
+async function tools(): Promise<void> {
+  const { bcsConfigService } = await import('./services/BcsConfigService.js')
+  const { toolRegistryService } = await import('./services/ToolRegistryService.js')
+  const action = args[1] || 'list'
+  const toolId = args[2]
+  let config = bcsConfigService.loadGlobalConfig()
+
+  if (action === 'detect') {
+    config = await toolRegistryService.refreshGlobalRegistry()
+  } else if (action === 'enable' && toolId) {
+    config = toolRegistryService.setEnabled(toolId, true)
+  } else if (action === 'disable' && toolId) {
+    config = toolRegistryService.setEnabled(toolId, false)
+  } else if ((action === 'default' || action === 'set-default') && toolId) {
+    config = toolRegistryService.setDefault(toolId)
+  } else if (action !== 'list' && action !== 'status') {
+    console.error(`Unknown tools action: ${action}`)
+    console.error('Usage: bcs tools [detect|enable <tool>|disable <tool>|default <tool>]')
+    process.exit(1)
+  }
+
+  console.log(toolRegistryService.formatTools(config))
 }
 
 async function dashboard(): Promise<void> {
@@ -197,7 +333,7 @@ async function doctor(): Promise<void> {
   const { authReader } = await import('./services/AuthReader.js')
   const { doctorService } = await import('./services/DoctorService.js')
 
-  await db.init()
+  await db.init({ scope: args.includes('--global') ? 'global' : 'auto', projectPath: process.cwd() })
   modelRegistry.init()
   tokenTracker.init()
   modelRegistry.setAuthProviders(await authReader.getProviders(true))
@@ -264,17 +400,22 @@ async function router(): Promise<void> {
 
 function help(): void {
   console.log(`
-Better Code Soul — OpenCode plugin for token tracking and parallel subagent orchestration
+Better Code Soul — cost, quality and routing layer for coding agents
 
 Usage:
-  better-code-soul setup     Register plugin with OpenCode
-  better-code-soul status    Check installation status
-  better-code-soul doctor    Run install/auth/tool diagnostics
-  better-code-soul quality   Show quality loop report
-  better-code-soul router    Show auto-improving router report
-  better-code-soul dashboard Open web dashboard
-  better-code-soul mcp       Start MCP server (stdio)
-  better-code-soul help      Show this help
+  bcs setup              Global setup wizard and tool registry
+  bcs tools              List/detect/enable coding tools
+  bcs init               Activate BCS in the current project
+  bcs status             Check global and project status
+  bcs doctor             Run project install/auth/tool diagnostics
+  bcs doctor --global    Run global diagnostics
+  bcs quality            Show project quality loop report
+  bcs router             Show project auto-improving router report
+  bcs dashboard          Open web dashboard
+  bcs mcp                Start MCP server (stdio)
+  bcs help               Show this help
+
+Legacy binary \`better-code-soul\` supports the same commands.
 
 OpenCode Commands (after setup):
   /bcs                 Open web dashboard
@@ -293,10 +434,28 @@ OpenCode Commands (after setup):
 
 switch (command) {
   case 'setup':
-    setup()
+    setup().catch((err) => {
+      console.error(`Setup failed: ${err}`)
+      process.exit(1)
+    })
+    break
+  case 'init':
+    initProject().catch((err) => {
+      console.error(`Project init failed: ${err}`)
+      process.exit(1)
+    })
+    break
+  case 'tools':
+    tools().catch((err) => {
+      console.error(`Tools command failed: ${err}`)
+      process.exit(1)
+    })
     break
   case 'status':
-    status()
+    status().catch((err) => {
+      console.error(`Status failed: ${err}`)
+      process.exit(1)
+    })
     break
   case 'doctor':
     doctor().catch((err) => {

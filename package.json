@@ -1,18 +1,19 @@
 {
   "name": "better-code-soul",
   "version": "0.1.0",
-  "description": "OpenCode plugin for parallel subagent orchestration, token tracking, Graphify and Context Mode management",
+  "description": "Cost, quality and routing layer for coding agents",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "bin": {
-    "better-code-soul": "dist/cli.js"
+    "better-code-soul": "dist/cli.js",
+    "bcs": "dist/cli.js"
   },
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "scripts": {
@@ -41,6 +42,8 @@
   },
   "keywords": [
     "opencode",
+    "codex",
+    "claude-code",
     "plugin",
     "token",
     "mcp",
@@ -53,12 +56,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/better-code-soul"
+    "url": "https://github.com/devGibi/better-code-soul.git"
   },
   "files": [
     "dist",
     "scripts",
     "configs",
+    "assets",
     "src/models"
   ]
 }

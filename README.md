@@ -1,15 +1,36 @@
 # Better Code Soul
 
-OpenCode plugin for parallel subagent orchestration, token tracking, Graphify and Context Mode management.
+Cost, quality and routing layer for coding agents such as OpenCode, Codex CLI, Claude Code, Cursor CLI and Aider.
 
 ## Installation
 
 ```bash
 npm install -g better-code-soul
-better-code-soul setup
-# Restart OpenCode
-/bcs-doctor
+bcs setup       # global machine setup + coding tool registry
+cd my-project
+bcs init        # project activation: budget, quality commands, routing, history DB
+bcs doctor
 ```
+
+BCS is installed globally, but it runs project-by-project. Global setup answers "which coding tools exist on this computer?" Project init answers "how should this repo spend, test, route and learn?"
+
+## Two-Layer Setup
+
+| Layer | Command | Stores | Purpose |
+|---|---|---|---|
+| Global install | `npm install -g better-code-soul` | CLI on PATH | Installs `better-code-soul` and `bcs` binaries |
+| Global setup | `bcs setup` | `~/.better-code-soul/config.json` | Detects coding tools and optionally registers OpenCode slash commands |
+| Project activation | `bcs init` | `.bcs.json`, `.bcs/history.db`, `.bcs/checkpoints/`, `.bcs/reports/` | Sets repo budget, quality commands, routing mode and local history |
+
+Tool registry:
+
+```bash
+bcs tools detect
+bcs tools enable opencode
+bcs tools default opencode
+```
+
+BCS uses an adapter architecture. OpenCode execution is supported today; Codex, Claude Code, Cursor, Aider and custom CLI entries can be detected/enabled as registry targets and can receive full task adapters next.
 
 ## Commands
 
@@ -26,6 +47,15 @@ better-code-soul setup
 | `/bcs-doctor` | Install, auth, storage, and tool diagnostics |
 | `/bcs-quality` | Quality loop report — success score, model performance, cost per successful task |
 | `/bcs-router` | Auto-improving router report — learned model rankings and escalations |
+
+CLI aliases:
+
+```bash
+bcs setup
+bcs init
+bcs tools
+bcs status
+```
 
 ## Dashboard
 
@@ -156,7 +186,9 @@ This exposes all tools via the Model Context Protocol (stdio transport).
 ## CLI Commands
 
 ```bash
-better-code-soul setup     # Register plugin and commands with OpenCode
+better-code-soul setup     # Global setup wizard and tool registry
+better-code-soul init      # Activate current project
+better-code-soul tools     # Manage global coding tool registry
 better-code-soul status    # Check installation status
 better-code-soul doctor    # Run install/auth/tool diagnostics
 better-code-soul quality   # Show quality loop report
@@ -166,10 +198,12 @@ better-code-soul mcp       # Start MCP server (stdio)
 better-code-soul help      # Show help
 ```
 
+The shorter `bcs` binary supports the same commands.
+
 ## Requirements
 
 - Node.js 18+
-- OpenCode installed
+- At least one supported coding tool installed for execution. OpenCode is supported for task execution today.
 
 ## License
 

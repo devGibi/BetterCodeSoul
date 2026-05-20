@@ -1,5 +1,8 @@
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
+
+export type BcsDataScope = 'auto' | 'global' | 'project'
 
 export const paths = {
   opencodeConfig(): string {
@@ -14,8 +17,50 @@ export const paths = {
     return path.join(paths.hubData(), 'data.db')
   },
 
+  globalConfig(): string {
+    return path.join(paths.hubData(), 'config.json')
+  },
+
   hubLogs(): string {
     return path.join(paths.hubData(), 'logs')
+  },
+
+  projectConfig(projectPath = process.cwd()): string {
+    return path.join(projectPath, '.bcs.json')
+  },
+
+  projectDir(projectPath = process.cwd()): string {
+    return path.join(projectPath, '.bcs')
+  },
+
+  projectDb(projectPath = process.cwd()): string {
+    return path.join(paths.projectDir(projectPath), 'history.db')
+  },
+
+  projectCheckpoints(projectPath = process.cwd()): string {
+    return path.join(paths.projectDir(projectPath), 'checkpoints')
+  },
+
+  projectReports(projectPath = process.cwd()): string {
+    return path.join(paths.projectDir(projectPath), 'reports')
+  },
+
+  activeDb(projectPath = process.cwd(), scope: BcsDataScope = 'auto'): string {
+    if (scope === 'global') return paths.hubDb()
+    if (scope === 'project') return paths.projectDb(projectPath)
+
+    return fs.existsSync(paths.projectConfig(projectPath)) || fs.existsSync(paths.projectDb(projectPath))
+      ? paths.projectDb(projectPath)
+      : paths.hubDb()
+  },
+
+  activeCheckpointDir(projectPath = process.cwd(), scope: BcsDataScope = 'auto'): string {
+    if (scope === 'global') return path.join(paths.hubData(), 'checkpoints')
+    if (scope === 'project') return paths.projectCheckpoints(projectPath)
+
+    return fs.existsSync(paths.projectConfig(projectPath)) || fs.existsSync(paths.projectDir(projectPath))
+      ? paths.projectCheckpoints(projectPath)
+      : path.join(paths.hubData(), 'checkpoints')
   },
 
   python(): string {

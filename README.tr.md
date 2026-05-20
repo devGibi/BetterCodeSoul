@@ -1,15 +1,36 @@
 # Better Code Soul
 
-OpenCode icin paralel subagent orkestrasyon, token takibi, Graphify ve Context Mode yonetimi plugini.
+OpenCode, Codex CLI, Claude Code, Cursor CLI ve Aider gibi kodlama ajanlarinin ustunde calisan maliyet, kalite ve routing katmani.
 
 ## Kurulum
 
 ```bash
 npm install -g better-code-soul
-better-code-soul setup
-# OpenCode'u yeniden baslatin
-/bcs-doctor
+bcs setup       # global makine kurulumu + coding tool registry
+cd my-project
+bcs init        # proje aktivasyonu: budget, kalite komutlari, routing, history DB
+bcs doctor
 ```
+
+BCS global kurulur ama proje bazli calisir. Global setup "bu bilgisayarda hangi kodlama araclari var?" sorusunu cevaplar. `bcs init` ise "bu repo nasil test edilecek, ne kadar harcayacak, hangi routing modunu kullanacak?" sorusunu cevaplar.
+
+## Iki Katmanli Kurulum
+
+| Katman | Komut | Saklanan Yer | Amac |
+|---|---|---|---|
+| Global install | `npm install -g better-code-soul` | PATH uzerinde CLI | `better-code-soul` ve `bcs` binary'lerini kurar |
+| Global setup | `bcs setup` | `~/.better-code-soul/config.json` | Coding tool'lari algilar ve opsiyonel OpenCode slash command kaydi yapar |
+| Proje aktivasyonu | `bcs init` | `.bcs.json`, `.bcs/history.db`, `.bcs/checkpoints/`, `.bcs/reports/` | Repo budget, kalite komutlari, routing modu ve lokal gecmisi tutar |
+
+Tool registry:
+
+```bash
+bcs tools detect
+bcs tools enable opencode
+bcs tools default opencode
+```
+
+BCS adapter mimarisi kullanir. Bugun task execution icin OpenCode desteklenir; Codex, Claude Code, Cursor, Aider ve custom CLI kayitlari global registry'de algilanabilir ve sonraki fazlarda tam adapter alabilir.
 
 ## Komutlar
 
@@ -26,6 +47,15 @@ better-code-soul setup
 | `/bcs-doctor` | Kurulum, auth, depolama ve arac saglik kontrolu |
 | `/bcs-quality` | Kalite raporu — basari skoru, model performansi, basarili task maliyeti |
 | `/bcs-router` | Auto-improving router raporu — learned model ranking ve escalation |
+
+CLI kisa alias:
+
+```bash
+bcs setup
+bcs init
+bcs tools
+bcs status
+```
 
 ## Dashboard
 
@@ -156,7 +186,9 @@ Bu tum araclari Model Context Protocol (stdio transport) uzerinden sunar.
 ## CLI Komutlari
 
 ```bash
-better-code-soul setup     # Plugin ve komutlari OpenCode'a kaydet
+better-code-soul setup     # Global setup wizard ve tool registry
+better-code-soul init      # Mevcut projede BCS'yi aktive et
+better-code-soul tools     # Global coding tool registry yonetimi
 better-code-soul status    # Kurulum durumunu kontrol et
 better-code-soul doctor    # Kurulum/auth/arac saglik kontrolu
 better-code-soul quality   # Quality loop raporu
@@ -166,10 +198,12 @@ better-code-soul mcp       # MCP server baslat (stdio)
 better-code-soul help      # Yardim goster
 ```
 
+Kisa `bcs` binary'si ayni komutlari destekler.
+
 ## Gereksinimler
 
 - Node.js 18+
-- OpenCode yuklu olmali
+- Task execution icin desteklenen en az bir coding tool yuklu olmali. Bugun task calistirma icin OpenCode desteklenir.
 
 ## Lisans
 

@@ -143,6 +143,7 @@ export class Orchestrator {
         model: routeResult.model,
         task: plan.plannerTask,
         context: this.buildContextSummary(decision, projectPath),
+        cwd: projectPath,
         maxTokens: 4000,
       })
 
@@ -209,6 +210,7 @@ export class Orchestrator {
             .filter(Boolean)
             .join('\n\n'),
           outputFiles: task.files,
+          cwd: projectPath,
           maxTokens: 3000,
         })
 
@@ -255,6 +257,7 @@ export class Orchestrator {
           model: reviewRouteResult.model,
           task: `Bu kodu incele: tip hatasi, logic hatasi, RULES.md ihlali var mi?\n\n${coderResult.output}`,
           context: coderResult.output,
+          cwd: projectPath,
           maxTokens: 1000,
         }).then(result => {
           db.saveOrchestrationStep({
@@ -450,6 +453,7 @@ export class Orchestrator {
         'Sorun yoksa sadece "ONAYLANDI" yaz.',
       ].join('\n'),
       context: [params.merged.output, ...params.coderResults.map((result) => result.output)].join('\n\n'),
+      cwd: params.projectPath,
       maxTokens: 1200,
     })
 
@@ -497,6 +501,7 @@ export class Orchestrator {
       model: routeResult.model,
       task: this.buildRetryTask(params.userRequest, params.quality),
       context: params.merged.output,
+      cwd: params.projectPath,
       maxTokens: 2500,
     })
 

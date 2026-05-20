@@ -80,4 +80,31 @@ describe('QualityLoopService', () => {
     expect(quality.shouldRetry).toBe(true)
     expect(quality.failedTasks).toBe(1)
   })
+
+  it('uses project quality commands from .bcs.json first', async () => {
+    const dir = tempDir()
+    fs.writeFileSync(path.join(dir, '.bcs.json'), JSON.stringify({
+      version: 1,
+      defaultTool: 'opencode',
+      mode: 'balanced',
+      risk: 'medium',
+      budget: { perTask: 0.25, daily: 5 },
+      quality: { test: 'node -e "process.exit(0)"' },
+      routing: { simple: 'cheap-first', medium: 'cheap-first-with-review', complex: 'planner-coder-reviewer' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }), 'utf-8')
+    const results = [agent()]
+
+    const quality = await new QualityLoopService().run({
+      projectPath: dir,
+      merged: merged(results),
+      allResults: results,
+      totalCost: 0.001,
+    })
+
+    expect(quality.commands).toHaveLength(1)
+    expect(quality.commands[0].display).toBe('node -e "process.exit(0)"')
+    expect(quality.commands[0].success).toBe(true)
+  })
 })

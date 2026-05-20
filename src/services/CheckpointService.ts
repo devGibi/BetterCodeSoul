@@ -28,7 +28,7 @@ export class CheckpointService {
 
       const status = await runCommand('git', ['status', '--porcelain'], { cwd: projectPath, timeout: 30_000 })
       const diff = await runCommand('git', ['diff', '--binary'], { cwd: projectPath, timeout: 60_000 })
-      const checkpointDir = path.join(paths.hubData(), 'checkpoints')
+      const checkpointDir = paths.activeCheckpointDir(projectPath)
       await fs.promises.mkdir(checkpointDir, { recursive: true })
       const patchPath = path.join(checkpointDir, `${id}.patch`)
       await fs.promises.writeFile(patchPath, diff.stdout, 'utf-8')
